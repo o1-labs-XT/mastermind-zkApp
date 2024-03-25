@@ -77,7 +77,7 @@ try {
   // call update() and send transaction
   console.log('build transaction and create proof...');
   let tx = await Mina.transaction({ sender: feepayerAddress, fee }, () => {
-    zkApp.update();
+    zkApp.initGame();
   });
   await tx.prove();
 
