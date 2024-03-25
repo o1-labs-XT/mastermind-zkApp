@@ -1,4 +1,4 @@
-import { Add } from './Add';
+import { MastermindZkApp } from './Mastermind';
 import { Field, Mina, PrivateKey, PublicKey, AccountUpdate } from 'o1js';
 
 /*
@@ -17,10 +17,10 @@ describe('Add', () => {
     senderKey: PrivateKey,
     zkAppAddress: PublicKey,
     zkAppPrivateKey: PrivateKey,
-    zkApp: Add;
+    zkApp: MastermindZkApp;
 
   beforeAll(async () => {
-    if (proofsEnabled) await Add.compile();
+    if (proofsEnabled) await MastermindZkApp.compile();
   });
 
   beforeEach(() => {
@@ -32,7 +32,7 @@ describe('Add', () => {
       Local.testAccounts[1]);
     zkAppPrivateKey = PrivateKey.random();
     zkAppAddress = zkAppPrivateKey.toPublicKey();
-    zkApp = new Add(zkAppAddress);
+    zkApp = new MastermindZkApp(zkAppAddress);
   });
 
   async function localDeploy() {

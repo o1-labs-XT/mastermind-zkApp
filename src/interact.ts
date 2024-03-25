@@ -14,7 +14,7 @@
  */
 import fs from 'fs/promises';
 import { Mina, NetworkId, PrivateKey } from 'o1js';
-import { Add } from './Add.js';
+import { MastermindZkApp } from './Mastermind.js';
 
 // check command line arg
 let deployAlias = process.argv[2];
@@ -66,12 +66,13 @@ const fee = Number(config.fee) * 1e9; // in nanomina (1 billion = 1.0 mina)
 Mina.setActiveInstance(Network);
 let feepayerAddress = feepayerKey.toPublicKey();
 let zkAppAddress = zkAppKey.toPublicKey();
-let zkApp = new Add(zkAppAddress);
+let zkApp = new MastermindZkApp(zkAppAddress);
 
 // compile the contract to create prover keys
 console.log('compile the contract...');
-await Add.compile();
+await MastermindZkApp.compile();
 
+//! Adapt the zkApp logic to mastermind
 try {
   // call update() and send transaction
   console.log('build transaction and create proof...');

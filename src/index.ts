@@ -1,3 +1,3 @@
-import { Add } from './Add.js';
+import { MastermindZkApp } from './Mastermind.js';
 
-export { Add };
+export { MastermindZkApp };

@@ -9,7 +9,7 @@ import { Field, SmartContract, state, State, method } from 'o1js';
  *
  * This file is safe to delete and replace with your own contract.
  */
-export class Add extends SmartContract {
+export class MastermindZkApp extends SmartContract {
   @state(Field) num = State<Field>();
 
   init() {
