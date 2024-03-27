@@ -10,8 +10,9 @@ import {
   AccountUpdate,
   MerkleTree,
   UInt8,
+  Provable,
 } from 'o1js';
-import { serializeCombination } from './utils';
+import { deserializeClue, serializeCombination } from './utils';
 
 let proofsEnabled = false;
 
@@ -229,31 +230,193 @@ describe('Mastermind ZkApp Tests', () => {
     });
   });
 
-  describe('makeGuess method tests', () => {
+  describe('makeGuess method tests: first guess', () => {
+    async function testInvalidGuess(guess: number[], errorMessage?: string) {
+      const serializedGuess = serializeCombination(guess);
+
+      const makeGuessTx = async () => {
+        const tx = await Mina.transaction(codebreakerKey.toPublicKey(), () => {
+          zkapp.makeGuess(serializedGuess, codebreakerSalt);
+        });
+
+        await tx.prove();
+        await tx.sign([codebreakerKey]).send();
+      };
+
+      expect(makeGuessTx).rejects.toThrowError(errorMessage);
+    }
+
+    it('should reject codebreaker with invalid guess combination: first digit is 0', async () => {
+      const errorMessage = 'Combination digit 1 should not be zero!';
+      await testInvalidGuess([0, 1, 4, 6], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: second digit is 0', async () => {
+      const errorMessage = 'Combination digit 2 should not be zero!';
+      await testInvalidGuess([3, 0, 9, 6], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: third digit is 0', async () => {
+      const errorMessage = 'Combination digit 3 should not be zero!';
+      await testInvalidGuess([7, 2, 0, 5], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: fouth digit is 0', async () => {
+      const errorMessage = 'Combination digit 4 should not be zero!';
+      await testInvalidGuess([6, 9, 3, 0], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: first digit is greater than 9', async () => {
+      const errorMessage = 'Combination digit 1 should be between 1 and 9!';
+      await testInvalidGuess([10, 9, 3, 0], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: second digit is greater than 9', async () => {
+      const errorMessage = 'Combination digit 2 should be between 1 and 9!';
+      await testInvalidGuess([2, 15, 3, 0], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: third digit is greater than 9', async () => {
+      const errorMessage = 'Combination digit 3 should be between 1 and 9!';
+      await testInvalidGuess([1, 9, 13, 0], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: fourth digit is greater than 9', async () => {
+      const errorMessage = 'Combination digit 4 should be between 1 and 9!';
+      await testInvalidGuess([1, 9, 2, 14], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: second digit is not unique', async () => {
+      const errorMessage = 'Combination digit 2 is not unique!';
+      await testInvalidGuess([1, 1, 2, 9], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: third digit is not unique', async () => {
+      const errorMessage = 'Combination digit 3 is not unique!';
+      await testInvalidGuess([1, 2, 2, 9], errorMessage);
+    });
+
+    it('should reject codebreaker with invalid guess combination: fourth digit is not unique', async () => {
+      const errorMessage = 'Combination digit 4 is not unique!';
+      await testInvalidGuess([1, 3, 9, 9], errorMessage);
+    });
+
+    it('should accept codebreaker valid guess & update on-chain state', async () => {
+      // Test that the codebreakerId is not updated yet
+      const codebreakerId = zkapp.codebreakerId.get();
+      expect(codebreakerId).toEqual(Field(0));
+
+      const firstGuess = [1, 5, 6, 2];
+      const serializedGuess = serializeCombination(firstGuess);
+
+      const makeGuessTx = await Mina.transaction(
+        codebreakerKey.toPublicKey(),
+        () => {
+          zkapp.makeGuess(serializedGuess, codebreakerSalt);
+        }
+      );
+
+      await makeGuessTx.prove();
+      await makeGuessTx.sign([codebreakerKey]).send();
+
+      // Test that the on-chain states are updated
+      const updatedCodebreakerId = zkapp.codebreakerId.get();
+      expect(updatedCodebreakerId).not.toEqual(Field(0));
+
+      const turnCount = zkapp.turnCount.get().toNumber();
+      expect(turnCount).toEqual(2);
+    });
+
+    it('should reject the codebraker from calling this method if the clue from previous turn is not reported yet', async () => {
+      const errorMessage = 'Please wait for the codemaster to give you a clue!';
+      await testInvalidGuess([1, 2, 2, 9], errorMessage);
+    });
+  });
+
+  describe('giveClue method tests', () => {
+    async function testInvalidClue(
+      secretCombination: number[],
+      errorMessage?: string,
+      signerKey = codemasterKey,
+      signerSalt = codemasterSalt
+    ) {
+      const serializedSecretCombination =
+        serializeCombination(secretCombination);
+
+      const giveClueTx = async () => {
+        const tx = await Mina.transaction(signerKey.toPublicKey(), () => {
+          zkapp.giveClue(serializedSecretCombination, signerSalt);
+        });
+
+        await tx.prove();
+        await tx.sign([signerKey]).send();
+      };
+
+      expect(giveClueTx).rejects.toThrowError(errorMessage);
+    }
+
+    it('should reject any caller other than the codemaster', async () => {
+      const errorMessage =
+        'Only the codemaster of this game is allowed to give clue!';
+      await testInvalidClue([1, 2, 3, 4], errorMessage, intruderKey);
+    });
+
+    it('should reject codemaster with different salt', async () => {
+      const differentSalt = Field.random();
+      const errorMessage =
+        'Only the codemaster of this game is allowed to give clue!';
+      await testInvalidClue(
+        [1, 2, 3, 4],
+        errorMessage,
+        codemasterKey,
+        differentSalt
+      );
+    });
+
+    it('should reject codemaster with non-compliant secret combination', async () => {
+      const errorMessage =
+        'The secret combination is not compliant with the stored hash on-chain!';
+      await testInvalidClue([1, 5, 3, 4], errorMessage);
+    });
+
+    it('should accept codemaster clue and update on-chain state', async () => {
+      const solution = [1, 2, 3, 4];
+      const serializedSolution = serializeCombination(solution);
+
+      const giveClueTx = await Mina.transaction(
+        codemasterKey.toPublicKey(),
+        () => {
+          zkapp.giveClue(serializedSolution, codemasterSalt);
+        }
+      );
+
+      await giveClueTx.prove();
+      await giveClueTx.sign([codemasterKey]).send();
+
+      // Test that the on-chain states are updated: serializedClue, isSolved, and turnCount
+      const serializedClue = zkapp.serializedClue.get();
+      const clue = deserializeClue(serializedClue);
+      expect(clue).toEqual([2, 0, 0, 1].map(Field));
+      
+      const isSolved = zkapp.isSolved.get().toBoolean();
+      expect(isSolved).toEqual(false);
+      
+      const turnCount = zkapp.turnCount.get().toNumber();
+      expect(turnCount).toEqual(3);
+    });
+
+    //TODO repeat the cycle few 10 times more and add win-lose case tests
+  });
+
+  describe('makeGuess method tests: second guess onwards', () => {
+    //! the giveClue is tested separately
     it.todo(
       'should reject codebreaker to call this method before game is created'
     );
-    it.todo('should reject codebreaker to make an invalid guess');
-    it.todo('should make valid guess & update state');
-    it.todo(
-      'should reject the codebraker calling this method if the clue from previous turn is not reported'
-    );
-
-    //! this is import to test the rest of method apart from first turn
-    //! the giveClue is tested separately
     it.todo('should accept codemaster clue');
 
     it.todo('should reject any caller other than the codebreaker');
     it.todo('should reject a codebreaker with different salt');
     it.todo('should accept another valid guess from the codebreaker');
-  });
-
-  describe('giveClue method tests', () => {
-    it.todo('should reject any caller other than the codemaster');
-    it.todo('should reject codemaster with non-compliant secret combination');
-    it.todo('should reject codemaster with different salt');
-    it.todo('should accept clue TX and update state');
-
-    //TODO repeat the cycle few 10 times more and add win-lose case tests
   });
 });
