@@ -1,6 +1,7 @@
 //TODO Store the record of guesses in a merkle tree or a serialized field
 //TODO Store the record of clues in a merkle tree or a serialized field
 //TODO Add events
+//TODO? prevent the codemaster from being the codebreaker of the same game
 
 import {
   Field,
@@ -85,7 +86,7 @@ export class MastermindZkApp extends SmartContract {
       .getAndRequireEquals()
       .assertFalse('You have already solved the secret combination!');
 
-    //! Assert that the codebreaker has not reach the limit number of attempts
+    //! Assert that the codebreaker has not reached the limit number of attempts
     const roundLimit = this.roundsLimit.getAndRequireEquals();
     turnCount.assertLessThan(
       roundLimit.mul(2),
@@ -160,38 +161,44 @@ export class MastermindZkApp extends SmartContract {
     ]);
 
     //! Restrict method access solely to the correct codemaster
-    this.codemasterId.getAndRequireEquals().assertEquals(computedCodemasterId);
+    this.codemasterId
+      .getAndRequireEquals()
+      .assertEquals(
+        computedCodemasterId,
+        'Only the codemaster of this game is allowed to give clue!'
+      );
 
     // Deserialize the secret combination
     const solution = deserializeCombination(serializedSecretCombination);
 
     //! Compute solution hash and assert integrity to state on-chain
     const computedSolutionHash = Poseidon.hash([...solution, salt]);
-    this.solutionHash.getAndRequireEquals().assertEquals(computedSolutionHash);
+    this.solutionHash
+      .getAndRequireEquals()
+      .assertEquals(
+        computedSolutionHash,
+        'The secret combination is not compliant with the stored hash on-chain!'
+      );
 
     // Fetch & deserialize the on-chain guess
     const serializedGuess = this.serializedGuess.getAndRequireEquals();
     const guess = deserializeCombination(serializedGuess);
 
     // Scan the guess through the solution and return clue result(hit or blow)
-    let clue: Field[] = [];
+    let clue = Array.from({ length: 4 }, () => Field(0));
     for (let i = 0; i < 4; i++) {
-      for (let j = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) {
+        const isEqual = guess[i].equals(solution[j]).toField();
         // eslint-disable-next-line o1js/no-if-in-circuit
-        if (i == j) {
-          const isHit = guess[i].equals(solution[j]);
-          clue[i] = isHit.toField().mul(2);
-        } else {
-          const isBlow = guess[i].equals(solution[j]);
-          clue[i] = isBlow.toField();
-        }
+        if (i == j) clue[i] = clue[i].add(isEqual.mul(2));
+        else clue[i] = clue[i].add(isEqual);
       }
     }
 
     // Check if the guess is correct & update the on-chain state
     let isSolved = Bool(true);
     for (let i = 0; i < 4; i++) {
-      const isHit = clue[i].equals(2);
+      let isHit = clue[i].equals(2);
       isSolved = isSolved.and(isHit);
     }
     this.isSolved.set(isSolved);
