@@ -29,12 +29,16 @@ async function localDeploy(
   await tx.sign([deployerKey, zkappPrivateKey]).send();
 }
 
-async function initializeGame(zkapp: MastermindZkApp, deployerKey: PrivateKey) {
+async function initializeGame(
+  zkapp: MastermindZkApp,
+  deployerKey: PrivateKey,
+  rounds: number
+) {
   const deployerAccount = deployerKey.toPublicKey();
 
   // The deployer initializes the Mastermind zkapp
   const initTx = await Mina.transaction(deployerAccount, () => {
-    zkapp.initGame();
+    zkapp.initGame(UInt8.from(rounds));
   });
 
   await initTx.prove();
@@ -91,7 +95,7 @@ describe('Mastermind ZkApp Tests', () => {
 
     // This is test verifies that the zkapp initial state values are correctly set up
     it('Initialize game', async () => {
-      await initializeGame(zkapp, codemasterKey);
+      await initializeGame(zkapp, codemasterKey, 10);
 
       const codemasterId = zkapp.codemasterId.get();
       expect(codemasterId).toEqual(Field(0));
@@ -120,10 +124,14 @@ describe('Mastermind ZkApp Tests', () => {
   });
 
   describe('makeGuess method tests', () => {
-    it.todo('should reject codebreaker to call this method before game is created');
+    it.todo(
+      'should reject codebreaker to call this method before game is created'
+    );
     it.todo('should reject codebreaker to make an invalid guess');
     it.todo('should make valid guess & update state');
-    it.todo('should reject the codebraker calling this method if the clue from previous turn is not reported');
+    it.todo(
+      'should reject the codebraker calling this method if the clue from previous turn is not reported'
+    );
 
     //! this is import to test the rest of method apart from first turn
     //! the giveClue is tested separately
