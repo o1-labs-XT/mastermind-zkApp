@@ -34,12 +34,13 @@ export class MastermindZkApp extends SmartContract {
     super.init();
 
     this.roundsLimit.set(roundsNO);
+    this.turnCount.set(UInt8.from(0));
     this.codemasterId.set(Field(0));
     this.codebreakerId.set(Field(0));
-    this.turnCount.set(UInt8.from(0));
     this.solutionHash.set(Field(0));
     this.serializedGuess.set(Field(0));
     this.serializedClue.set(Field(0));
+    this.isSolved.set(Bool(false));
   }
 
   @method createGame(serializedSecretCombination: Field, salt: Field) {
@@ -64,7 +65,7 @@ export class MastermindZkApp extends SmartContract {
     // Store codemaster ID on-chain
     this.codemasterId.set(codemasterId);
 
-    // 4. Initiate game & update on-chain turnCount
+    // Initiate game & increment on-chain turnCount
     this.turnCount.set(turnCount.add(1));
   }
 
