@@ -11,6 +11,7 @@ import {
   MerkleTree,
   UInt8,
 } from 'o1js';
+import { serializeCombination } from './utils';
 
 let proofsEnabled = false;
 
@@ -93,18 +94,22 @@ describe('Mastermind ZkApp Tests', () => {
       await localDeploy(zkapp, codemasterKey, zkappPrivateKey);
     });
 
-    // This is test verifies that the zkapp initial state values are correctly set up
+    // This test verifies that the zkapp initial state values are correctly set up
     it('Initialize game', async () => {
-      await initializeGame(zkapp, codemasterKey, 10);
+      const roundLimit = 10;
+      await initializeGame(zkapp, codemasterKey, roundLimit);
+
+      const rounds = zkapp.roundsLimit.get();
+      expect(rounds).toEqual(UInt8.from(roundLimit));
+
+      const turnCount = zkapp.turnCount.get();
+      expect(turnCount).toEqual(new UInt8(0));
 
       const codemasterId = zkapp.codemasterId.get();
       expect(codemasterId).toEqual(Field(0));
 
       const codebreakerId = zkapp.codebreakerId.get();
       expect(codebreakerId).toEqual(Field(0));
-
-      const turnCount = zkapp.turnCount.get();
-      expect(turnCount).toEqual(new UInt8(0));
 
       const solutionHash = zkapp.solutionHash.get();
       expect(solutionHash).toEqual(Field(0));
@@ -114,13 +119,114 @@ describe('Mastermind ZkApp Tests', () => {
 
       const serializedClue = zkapp.serializedClue.get();
       expect(serializedClue).toEqual(Field(0));
+
+      const isSolved = zkapp.isSolved.get().toBoolean();
+      expect(isSolved).toEqual(false);
     });
   });
 
   describe('createGame method tests', () => {
-    it.todo('should reject codemaster with invalid secret combination');
-    it.todo('should create a game and update codemasterId');
-    it.todo('should prevent other players from re-creating a game');
+    async function testInvalidCreateGame(
+      secretCombination: number[],
+      errorMessage?: string
+    ) {
+      const serializedSecretCombination =
+        serializeCombination(secretCombination);
+
+      const createGameTx = async () => {
+        const tx = await Mina.transaction(codemasterKey.toPublicKey(), () => {
+          zkapp.createGame(serializedSecretCombination, codemasterSalt);
+        });
+
+        await tx.prove();
+        await tx.sign([codemasterKey]).send();
+      };
+
+      expect(createGameTx).rejects.toThrowError(errorMessage);
+    }
+
+    it('should reject codemaster with invalid secret combination: first digit is 0', () => {
+      const errorMessage = 'Combination digit 1 should not be zero!';
+      testInvalidCreateGame([0, 1, 4, 6], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: second digit is 0', () => {
+      const errorMessage = 'Combination digit 2 should not be zero!';
+      testInvalidCreateGame([3, 0, 9, 6], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: third digit is 0', () => {
+      const errorMessage = 'Combination digit 3 should not be zero!';
+      testInvalidCreateGame([7, 2, 0, 5], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: fouth digit is 0', () => {
+      const errorMessage = 'Combination digit 4 should not be zero!';
+      testInvalidCreateGame([6, 9, 3, 0], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: first digit is greater than 9', () => {
+      const errorMessage = 'Combination digit 1 should be between 1 and 9!';
+      testInvalidCreateGame([10, 9, 3, 0], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: second digit is greater than 9', () => {
+      const errorMessage = 'Combination digit 2 should be between 1 and 9!';
+      testInvalidCreateGame([2, 15, 3, 0], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: third digit is greater than 9', () => {
+      const errorMessage = 'Combination digit 3 should be between 1 and 9!';
+      testInvalidCreateGame([1, 9, 13, 0], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: fourth digit is greater than 9', () => {
+      const errorMessage = 'Combination digit 4 should be between 1 and 9!';
+      testInvalidCreateGame([1, 9, 2, 14], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: second digit is not unique', () => {
+      const errorMessage = 'Combination digit 2 is not unique!';
+      testInvalidCreateGame([1, 1, 2, 9], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: third digit is not unique', () => {
+      const errorMessage = 'Combination digit 3 is not unique!';
+      testInvalidCreateGame([1, 2, 2, 9], errorMessage);
+    });
+
+    it('should reject codemaster with invalid secret combination: fourth digit is not unique', () => {
+      const errorMessage = 'Combination digit 4 is not unique!';
+      testInvalidCreateGame([1, 3, 9, 9], errorMessage);
+    });
+
+    it('should create a game and update codemasterId & turnCount on-chain', async () => {
+      const secretCombination = [1, 2, 3, 4];
+      const serializedSecretCombination =
+        serializeCombination(secretCombination);
+
+      const createGameTx = await Mina.transaction(
+        codemasterKey.toPublicKey(),
+        () => {
+          zkapp.createGame(serializedSecretCombination, codemasterSalt);
+        }
+      );
+
+      await createGameTx.prove();
+      await createGameTx.sign([codemasterKey]).send();
+
+      // Test that the on-chain states are updated
+      const codemasterId = zkapp.codemasterId.get();
+      expect(codemasterId).not.toEqual(Field(0));
+
+      const turnCount = zkapp.turnCount.get().toNumber();
+      expect(turnCount).toEqual(1);
+    });
+
+    it('should prevent players from re-creating a game: current codemaster included', async () => {
+      const errorMessage = 'A mastermind game is already created!';
+      testInvalidCreateGame([2, 3, 4, 5], errorMessage);
+    });
   });
 
   describe('makeGuess method tests', () => {
