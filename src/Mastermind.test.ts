@@ -1,17 +1,7 @@
-//TODO Add utility functions for serialization and game mechanics
-//TODO Add unit tests for game mechanics
+//TODO repeat the cycle few 10 times more and add win-lose case tests
 
 import { MastermindZkApp } from './Mastermind';
-import {
-  Field,
-  Mina,
-  PrivateKey,
-  PublicKey,
-  AccountUpdate,
-  MerkleTree,
-  UInt8,
-  Provable,
-} from 'o1js';
+import { Field, Mina, PrivateKey, PublicKey, AccountUpdate, UInt8 } from 'o1js';
 import { deserializeClue, serializeCombination } from './utils';
 
 let proofsEnabled = false;
@@ -54,9 +44,6 @@ describe('Mastermind ZkApp Tests', () => {
     zkappAddress: PublicKey,
     zkappPrivateKey: PrivateKey,
     zkapp: MastermindZkApp,
-    guessTree: MerkleTree,
-    clueTree: MerkleTree,
-    secretCombination: number[],
     codemasterSalt: Field,
     codebreakerSalt: Field;
 
@@ -77,17 +64,9 @@ describe('Mastermind ZkApp Tests', () => {
     zkappAddress = zkappPrivateKey.toPublicKey();
     zkapp = new MastermindZkApp(zkappAddress);
 
-    // Initialize the off-chain Merkle Tree for guess & clue storage respectively
-    guessTree = new MerkleTree(8);
-    clueTree = new MerkleTree(8);
-
     // Generate random field as salt for the codemaster & codebreaker respectively
     codemasterSalt = Field.random();
     codebreakerSalt = Field.random();
-
-    // Set up a valid secret combinartion for testing purposes
-    // Better encode the colours as number or enums locally
-    secretCombination = [];
   });
 
   describe('Deploy and initialize Mastermind zkApp', () => {
@@ -397,15 +376,13 @@ describe('Mastermind ZkApp Tests', () => {
       const serializedClue = zkapp.serializedClue.get();
       const clue = deserializeClue(serializedClue);
       expect(clue).toEqual([2, 0, 0, 1].map(Field));
-      
+
       const isSolved = zkapp.isSolved.get().toBoolean();
       expect(isSolved).toEqual(false);
-      
+
       const turnCount = zkapp.turnCount.get().toNumber();
       expect(turnCount).toEqual(3);
     });
-
-    //TODO repeat the cycle few 10 times more and add win-lose case tests
   });
 
   describe('makeGuess method tests: second guess onwards', () => {
