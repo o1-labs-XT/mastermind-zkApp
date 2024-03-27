@@ -31,19 +31,22 @@ function deserializeCombination(
 
 function validateCombination(combination: [Field, Field, Field, Field]) {
   for (let i = 0; i < 4; i++) {
+    // Check that the combination does not contain the digit 0
     combination[i]
       .equals(0)
       .assertFalse(`Combination digit ${i + 1} should not be zero!`);
+
+    // Check that the combination contains one-digit numbers only
     combination[i].assertLessThanOrEqual(
       9,
       `Combination digit ${i + 1} should be between 1 and 9!`
     );
 
     // Check that the combination digits are unique
-    for (let j = i + 1; i < 4; j++) {
+    for (let j = i + 1; j < 4; j++) {
       combination[i].assertNotEquals(
         combination[j],
-        `Combination digit ${i + 1} is not unique!`
+        `Combination digit ${j + 1} is not unique!`
       );
     }
   }
