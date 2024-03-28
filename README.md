@@ -1,20 +1,26 @@
 # Mina zkApp: Mina Mastermind
-
+![alt text](./mastermind-board.png)
 ## Understanding The Game
 
-The game has two players, a code master and code breaker. 
+- The game has two players, a code master and code breaker. 
+- In a classic Mastermind game, the secret combination is a combination of 4 non-unique coloured pegs.
 
-The code master generates 4 secret digits in a set sequence. Digits can be between 1-9 and the digits must all be different. 
-Then, each turn, the code breaker tries to guess the code master's digits, who then gives the number of matches.  
-If the matching digits are in their right positions, they are "hits", if they in different positions, they are "blows". 
+- In this ZK game, he code master generates 4 secret digits in a set sequence. Digits can be between 1-9 and the digits must all be different. 
 
-Example:
+- Then, each turn, the code breaker tries to guess the code master's digits, who then gives clues.  
 
-Code master private solution: 4 2 7 1 <br />
-Code breaker's public solution: 1 2 3 4 <br />
-Answer: 1 hit and 2 blows. (The hit is "2" in the second position, the blows are "4" and "1".) <br />
+- If the matching digits are in their right positions, they are "hits", if they in different positions, they are "blows". 
 
-The code breaker wins by guessing the secret sequence in a set number of attempts. In the example above, if the maximum number of attempts is not yet reached and in the next round the code breaker guessed the exact sequence "4 2 7 1" they will have 4 hits and win the game. 
+- Example:
+    - Code master private solution: **4 2 7 1** 
+    - Code breaker's public solution: **1 2 3 4**
+    - Answer: `1` hit and `2` blows. 
+        - The hit is `2` in the second position.
+        - The blows are `4` and `1`.
+
+- The code breaker wins by guessing the secret sequence in a **set number of attempts**. 
+
+- In the example above, if the maximum number of attempts is not yet reached and in the next round the code breaker guessed the exact sequence **4 2 7 1** they will have 4 hits and win the game. 
 
 ## On Chain State Variables
 
