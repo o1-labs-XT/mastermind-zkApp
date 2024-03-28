@@ -1,8 +1,3 @@
-//TODO Store the record of guesses in a merkle tree or a serialized field
-//TODO Store the record of clues in a merkle tree or a serialized field
-//TODO Add events
-//TODO? prevent the codemaster from being the codebreaker of the same game
-
 import {
   Field,
   SmartContract,
@@ -133,11 +128,11 @@ export class MastermindZkApp extends SmartContract {
   @method giveClue(serializedSecretCombination: Field, salt: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
 
-    //! Assert that the turnCount is pair & not zero for the codemaster to call this method
-    const isNotFirstTurn = turnCount.value.equals(0).not();
-    const isCodemasterTurn = turnCount.value.isEven().and(isNotFirstTurn);
-    isCodemasterTurn.assertTrue(
-      'Please wait for the codebreaker to make a guess!'
+    //! Assert that the codebreaker has not reached the limit number of attempts
+    const roundLimit = this.roundsLimit.getAndRequireEquals();
+    turnCount.assertLessThanOrEqual(
+      roundLimit.mul(2),
+      'The codebreaker has finished the number of attempts without solving the secret combination!'
     );
 
     //! Assert that the secret combination is not solved yet
@@ -147,11 +142,11 @@ export class MastermindZkApp extends SmartContract {
         'The codebreaker has already solved the secret combination!'
       );
 
-    //! Assert that the codebreaker has not reached the limit number of attempts
-    const roundLimit = this.roundsLimit.getAndRequireEquals();
-    turnCount.assertLessThanOrEqual(
-      roundLimit.mul(2),
-      'The codebreaker has finished the number of attempts without solving the secret combination!'
+    //! Assert that the turnCount is pair & not zero for the codemaster to call this method
+    const isNotFirstTurn = turnCount.value.equals(0).not();
+    const isCodemasterTurn = turnCount.value.isEven().and(isNotFirstTurn);
+    isCodemasterTurn.assertTrue(
+      'Please wait for the codebreaker to make a guess!'
     );
 
     // Generate codemaster ID
@@ -211,3 +206,6 @@ export class MastermindZkApp extends SmartContract {
     this.turnCount.set(turnCount.add(1));
   }
 }
+
+//TODO Add events
+//TODO? prevent the codemaster from being the codebreaker of the same game
