@@ -14,7 +14,7 @@ import {
   deserializeCombination,
   validateCombination,
   serializeClue,
-} from './utils';
+} from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
   @state(UInt8) roundsLimit = State<UInt8>();
@@ -26,20 +26,21 @@ export class MastermindZkApp extends SmartContract {
   @state(UInt8) turnCount = State<UInt8>();
   @state(Bool) isSolved = State<Bool>();
 
-  @method initGame(roundsNO: UInt8) {
-    super.init();
+  // Note that we have an input for this method this is why we dont use `init() {}` instead
+  //! This method can be called by anyone anytime -> risk to reset the game
+  @method async initGame(roundsNO: UInt8) {
+    // Sets your entire state to 0.
+    super.init(); 
 
+    // Only set the states with initial non-zero values
     this.roundsLimit.set(roundsNO);
-    this.turnCount.set(UInt8.from(0));
-    this.codemasterId.set(Field(0));
-    this.codebreakerId.set(Field(0));
-    this.solutionHash.set(Field(0));
-    this.serializedGuess.set(Field(0));
-    this.serializedClue.set(Field(0));
-    this.isSolved.set(Bool(false));
+
+    // Boolean states are set to false thanks to the `super.init()` -> no need to set like in this line
+    // this.isSolved.set(Bool(false)); todo -> jsdoc
   }
 
-  @method createGame(serializedSecretCombination: Field, salt: Field) {
+  //TODO decimal representation + Provable.witness() + unit tests
+  @method async createGame(serializedSecretCombination: Field, salt: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
 
     //! Restrict this method to be only called once at the beginnig of a game
@@ -49,6 +50,7 @@ export class MastermindZkApp extends SmartContract {
     const secretCombination = deserializeCombination(
       serializedSecretCombination
     );
+
     validateCombination(secretCombination);
 
     // Generate solution hash & store on-chain
@@ -56,7 +58,9 @@ export class MastermindZkApp extends SmartContract {
     this.solutionHash.set(solutionHash);
 
     // Generate codemaster ID -> taking address & salt
-    const codemasterId = Poseidon.hash([...this.sender.toFields(), salt]);
+    const codemasterId = Poseidon.hash(
+      this.sender.getAndRequireSignature().toFields(),
+    );
 
     // Store codemaster ID on-chain
     this.codemasterId.set(codemasterId);
@@ -67,20 +71,20 @@ export class MastermindZkApp extends SmartContract {
 
   //! Before calling this method the codebreaker should read
   //! the codemaster clue beforehand and make a guess
-  @method makeGuess(serializedGuess: Field, salt: Field) {
+  @method async makeGuess(serializedGuess: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
-
-    //! Only allow codebreaker to call this method following the correct turn sequence
-    const isCodebreakerTurn = turnCount.value.isEven().not();
-    isCodebreakerTurn.assertTrue(
-      'Please wait for the codemaster to give you a clue!'
-    );
-
+    
     //! Assert that the secret combination is not solved yet
     this.isSolved
       .getAndRequireEquals()
       .assertFalse('You have already solved the secret combination!');
-
+    
+      //! Only allow codebreaker to call this method following the correct turn sequence
+    const isCodebreakerTurn = turnCount.value.isEven().not();
+    isCodebreakerTurn.assertTrue(
+      'Please wait for the codemaster to give you a clue!'
+    );
+    
     //! Assert that the codebreaker has not reached the limit number of attempts
     const roundLimit = this.roundsLimit.getAndRequireEquals();
     turnCount.assertLessThan(
@@ -88,11 +92,10 @@ export class MastermindZkApp extends SmartContract {
       'You have reached the number limit of attempts to solve the secret combination!'
     );
 
-    // Compute codebreaker ID -> taking address & salt
-    const computedCodebreakerId = Poseidon.hash([
-      ...this.sender.toFields(),
-      salt,
-    ]);
+    // Compute codebreaker ID: explain
+    const computedCodebreakerId = Poseidon.hash(
+      this.sender.getAndRequireSignature().toFields()
+    );
 
     const setCodeBreakerId = () => {
       this.codebreakerId.set(computedCodebreakerId);
@@ -125,8 +128,21 @@ export class MastermindZkApp extends SmartContract {
     this.turnCount.set(turnCount.add(1));
   }
 
-  @method giveClue(serializedSecretCombination: Field, salt: Field) {
+  @method async giveClue(serializedSecretCombination: Field, salt: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
+
+    // Generate codemaster ID
+    const computedCodemasterId = Poseidon.hash(
+      this.sender.getAndRequireSignature().toFields(),
+    );
+
+    //! Restrict method access solely to the correct codemaster
+    this.codemasterId
+      .getAndRequireEquals()
+      .assertEquals(
+        computedCodemasterId,
+        'Only the codemaster of this game is allowed to give clue!'
+      );
 
     //! Assert that the codebreaker has not reached the limit number of attempts
     const roundLimit = this.roundsLimit.getAndRequireEquals();
@@ -149,20 +165,6 @@ export class MastermindZkApp extends SmartContract {
       'Please wait for the codebreaker to make a guess!'
     );
 
-    // Generate codemaster ID
-    const computedCodemasterId = Poseidon.hash([
-      ...this.sender.toFields(),
-      salt,
-    ]);
-
-    //! Restrict method access solely to the correct codemaster
-    this.codemasterId
-      .getAndRequireEquals()
-      .assertEquals(
-        computedCodemasterId,
-        'Only the codemaster of this game is allowed to give clue!'
-      );
-
     // Deserialize the secret combination
     const solution = deserializeCombination(serializedSecretCombination);
 
@@ -178,7 +180,8 @@ export class MastermindZkApp extends SmartContract {
     // Fetch & deserialize the on-chain guess
     const serializedGuess = this.serializedGuess.getAndRequireEquals();
     const guess = deserializeCombination(serializedGuess);
-
+    
+    //TODO move to utils
     // Scan the guess through the solution and return clue result(hit or blow)
     let clue = Array.from({ length: 4 }, () => Field(0));
     for (let i = 0; i < 4; i++) {
@@ -209,3 +212,6 @@ export class MastermindZkApp extends SmartContract {
 
 //TODO Add events
 //TODO? prevent the codemaster from being the codebreaker of the same game
+
+
+//TODO save one state by merging master id into solution hash 
