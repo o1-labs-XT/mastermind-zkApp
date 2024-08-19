@@ -8,6 +8,7 @@ export {
   validateCombination,
   serializeClue,
   deserializeClue,
+  getClueFromGuess,
 };
 
 function serializeCombination(combination: number[]) {
@@ -67,4 +68,34 @@ function deserializeClue(serialziedClue: Field): [Field, Field, Field, Field] {
   const clueD = Field.fromBits(bits.slice(6, 8));
 
   return [clueA, clueB, clueC, clueD];
+}
+
+/**
+ * Compares the guess with the solution and returns a clue indicating hits and blows.
+ * A "hit" is when a guess digit matches a solution digit in both value and position.
+ * A "blow" is when a guess digit matches a solution digit in value but not position.
+ *
+ * @param guess - The array representing the guessed combination.
+ * @param solution - The array representing the correct solution.
+ * @returns - An array where each element represents the clue for a corresponding guess digit.
+ *                           2 indicates a "hit" and 1 indicates a "blow".
+ */
+function getClueFromGuess(
+  guess: [Field, Field, Field, Field],
+  solution: [Field, Field, Field, Field]
+) {
+  let clue = Array.from({ length: 4 }, () => Field(0));
+
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      const isEqual = guess[i].equals(solution[j]).toField();
+      if (i === j) {
+        clue[i] = clue[i].add(isEqual.mul(2)); // 2 for a hit (correct digit and position)
+      } else {
+        clue[i] = clue[i].add(isEqual); // 1 for a blow (correct digit, wrong position)
+      }
+    }
+  }
+
+  return clue;
 }

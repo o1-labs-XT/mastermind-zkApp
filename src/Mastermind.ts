@@ -14,6 +14,7 @@ import {
   deserializeCombination,
   validateCombination,
   serializeClue,
+  getClueFromGuess,
 } from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
@@ -79,7 +80,7 @@ export class MastermindZkApp extends SmartContract {
       .getAndRequireEquals()
       .assertFalse('You have already solved the secret combination!');
     
-      //! Only allow codebreaker to call this method following the correct turn sequence
+    //! Only allow codebreaker to call this method following the correct turn sequence
     const isCodebreakerTurn = turnCount.value.isEven().not();
     isCodebreakerTurn.assertTrue(
       'Please wait for the codemaster to give you a clue!'
@@ -183,15 +184,7 @@ export class MastermindZkApp extends SmartContract {
     
     //TODO move to utils
     // Scan the guess through the solution and return clue result(hit or blow)
-    let clue = Array.from({ length: 4 }, () => Field(0));
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4; j++) {
-        const isEqual = guess[i].equals(solution[j]).toField();
-        // eslint-disable-next-line o1js/no-if-in-circuit
-        if (i == j) clue[i] = clue[i].add(isEqual.mul(2));
-        else clue[i] = clue[i].add(isEqual);
-      }
-    }
+    let clue = getClueFromGuess(guess, solution);
 
     // Check if the guess is correct & update the on-chain state
     let isSolved = Bool(true);
