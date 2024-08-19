@@ -1,6 +1,6 @@
 //TODO Refactor serialize & deserialize
 
-import { Field } from 'o1js';
+import { Field, Bool } from 'o1js';
 
 export {
   serializeCombination,
@@ -9,6 +9,7 @@ export {
   serializeClue,
   deserializeClue,
   getClueFromGuess,
+  checkIfSolved,
 };
 
 function serializeCombination(combination: number[]) {
@@ -98,4 +99,21 @@ function getClueFromGuess(
   }
 
   return clue;
+}
+
+/**
+ * Determines if the secret combination is solved based on the given clue.
+ *
+ * @param clue - An array representing the clues for each guess.
+ * @returns Returns true if all clues indicate a "hit" (2), meaning the secret is solved.
+ */
+function checkIfSolved(clue: Field[]) {
+  let isSolved = Bool(true);
+
+  for (let i = 0; i < 4; i++) {
+    let isHit = clue[i].equals(2);
+    isSolved = isSolved.and(isHit);
+  }
+
+  return isSolved;
 }

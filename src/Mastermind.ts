@@ -15,6 +15,7 @@ import {
   validateCombination,
   serializeClue,
   getClueFromGuess,
+  checkIfSolved,
 } from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
@@ -31,7 +32,7 @@ export class MastermindZkApp extends SmartContract {
   //! This method can be called by anyone anytime -> risk to reset the game
   @method async initGame(roundsNO: UInt8) {
     // Sets your entire state to 0.
-    super.init(); 
+    super.init();
 
     // Only set the states with initial non-zero values
     this.roundsLimit.set(roundsNO);
@@ -60,7 +61,7 @@ export class MastermindZkApp extends SmartContract {
 
     // Generate codemaster ID -> taking address & salt
     const codemasterId = Poseidon.hash(
-      this.sender.getAndRequireSignature().toFields(),
+      this.sender.getAndRequireSignature().toFields()
     );
 
     // Store codemaster ID on-chain
@@ -74,18 +75,18 @@ export class MastermindZkApp extends SmartContract {
   //! the codemaster clue beforehand and make a guess
   @method async makeGuess(serializedGuess: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
-    
+
     //! Assert that the secret combination is not solved yet
     this.isSolved
       .getAndRequireEquals()
       .assertFalse('You have already solved the secret combination!');
-    
+
     //! Only allow codebreaker to call this method following the correct turn sequence
     const isCodebreakerTurn = turnCount.value.isEven().not();
     isCodebreakerTurn.assertTrue(
       'Please wait for the codemaster to give you a clue!'
     );
-    
+
     //! Assert that the codebreaker has not reached the limit number of attempts
     const roundLimit = this.roundsLimit.getAndRequireEquals();
     turnCount.assertLessThan(
@@ -134,7 +135,7 @@ export class MastermindZkApp extends SmartContract {
 
     // Generate codemaster ID
     const computedCodemasterId = Poseidon.hash(
-      this.sender.getAndRequireSignature().toFields(),
+      this.sender.getAndRequireSignature().toFields()
     );
 
     //! Restrict method access solely to the correct codemaster
@@ -181,17 +182,12 @@ export class MastermindZkApp extends SmartContract {
     // Fetch & deserialize the on-chain guess
     const serializedGuess = this.serializedGuess.getAndRequireEquals();
     const guess = deserializeCombination(serializedGuess);
-    
-    //TODO move to utils
+
     // Scan the guess through the solution and return clue result(hit or blow)
     let clue = getClueFromGuess(guess, solution);
 
     // Check if the guess is correct & update the on-chain state
-    let isSolved = Bool(true);
-    for (let i = 0; i < 4; i++) {
-      let isHit = clue[i].equals(2);
-      isSolved = isSolved.and(isHit);
-    }
+    let isSolved = checkIfSolved(clue);
     this.isSolved.set(isSolved);
 
     // Serialize & update the on-chain clue
@@ -206,5 +202,4 @@ export class MastermindZkApp extends SmartContract {
 //TODO Add events
 //TODO? prevent the codemaster from being the codebreaker of the same game
 
-
-//TODO save one state by merging master id into solution hash 
+//TODO save one state by merging master id into solution hash
