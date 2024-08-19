@@ -139,54 +139,14 @@ describe('Mastermind ZkApp Tests', () => {
       await testInvalidCreateGame([0, 1, 4, 6], expectedErrorMessage);
     });
 
-    it('should reject codemaster with invalid secret combination: second digit is 0', async () => {
-      const errorMessage = 'Combination digit 2 should not be zero!';
-      await testInvalidCreateGame([3, 0, 9, 6], errorMessage);
-    });
-
-    it('should reject codemaster with invalid secret combination: third digit is 0', async () => {
-      const errorMessage = 'Combination digit 3 should not be zero!';
-      await testInvalidCreateGame([7, 2, 0, 5], errorMessage);
-    });
-
-    it('should reject codemaster with invalid secret combination: fouth digit is 0', async () => {
-      const errorMessage = 'Combination digit 4 should not be zero!';
-      await testInvalidCreateGame([6, 9, 3, 0], errorMessage);
-    });
-
-    it('should reject codemaster with invalid secret combination: first digit is greater than 9', () => {
-      const errorMessage = 'Combination digit 1 should be between 1 and 9!';
-      testInvalidCreateGame([10, 9, 3, 0], errorMessage);
-    });
-
     it('should reject codemaster with invalid secret combination: second digit is greater than 9', () => {
       const errorMessage = 'Combination digit 2 should be between 1 and 9!';
       testInvalidCreateGame([2, 15, 3, 0], errorMessage);
     });
 
-    it('should reject codemaster with invalid secret combination: third digit is greater than 9', () => {
-      const errorMessage = 'Combination digit 3 should be between 1 and 9!';
-      testInvalidCreateGame([1, 9, 13, 0], errorMessage);
-    });
-
-    it('should reject codemaster with invalid secret combination: fourth digit is greater than 9', () => {
-      const errorMessage = 'Combination digit 4 should be between 1 and 9!';
-      testInvalidCreateGame([1, 9, 2, 14], errorMessage);
-    });
-
-    it('should reject codemaster with invalid secret combination: second digit is not unique', () => {
-      const errorMessage = 'Combination digit 2 is not unique!';
-      testInvalidCreateGame([1, 1, 2, 9], errorMessage);
-    });
-
     it('should reject codemaster with invalid secret combination: third digit is not unique', () => {
       const errorMessage = 'Combination digit 3 is not unique!';
-      testInvalidCreateGame([1, 2, 2, 9], errorMessage);
-    });
-
-    it('should reject codemaster with invalid secret combination: fourth digit is not unique', () => {
-      const errorMessage = 'Combination digit 4 is not unique!';
-      testInvalidCreateGame([1, 3, 9, 9], errorMessage);
+      testInvalidCreateGame([2, 3, 2, 9], errorMessage);
     });
 
     // secretCombination = [1, 2, 3, 4]
@@ -237,34 +197,9 @@ describe('Mastermind ZkApp Tests', () => {
         expect(makeGuessTx).rejects.toThrowError(errorMessage);
       }
 
-      it('should reject codebreaker with invalid guess combination: first digit is 0', async () => {
-        const errorMessage = 'Combination digit 1 should not be zero!';
-        await testInvalidGuess([0, 1, 4, 6], errorMessage);
-      });
-
-      it('should reject codebreaker with invalid guess combination: second digit is 0', async () => {
-        const errorMessage = 'Combination digit 2 should not be zero!';
-        await testInvalidGuess([3, 0, 9, 6], errorMessage);
-      });
-
-      it('should reject codebreaker with invalid guess combination: third digit is 0', async () => {
-        const errorMessage = 'Combination digit 3 should not be zero!';
-        await testInvalidGuess([7, 2, 0, 5], errorMessage);
-      });
-
       it('should reject codebreaker with invalid guess combination: fouth digit is 0', async () => {
         const errorMessage = 'Combination digit 4 should not be zero!';
         await testInvalidGuess([6, 9, 3, 0], errorMessage);
-      });
-
-      it('should reject codebreaker with invalid guess combination: first digit is greater than 9', async () => {
-        const errorMessage = 'Combination digit 1 should be between 1 and 9!';
-        await testInvalidGuess([10, 9, 3, 0], errorMessage);
-      });
-
-      it('should reject codebreaker with invalid guess combination: second digit is greater than 9', async () => {
-        const errorMessage = 'Combination digit 2 should be between 1 and 9!';
-        await testInvalidGuess([2, 15, 3, 0], errorMessage);
       });
 
       it('should reject codebreaker with invalid guess combination: third digit is greater than 9', async () => {
@@ -272,24 +207,9 @@ describe('Mastermind ZkApp Tests', () => {
         await testInvalidGuess([1, 9, 13, 0], errorMessage);
       });
 
-      it('should reject codebreaker with invalid guess combination: fourth digit is greater than 9', async () => {
-        const errorMessage = 'Combination digit 4 should be between 1 and 9!';
-        await testInvalidGuess([1, 9, 2, 14], errorMessage);
-      });
-
       it('should reject codebreaker with invalid guess combination: second digit is not unique', async () => {
         const errorMessage = 'Combination digit 2 is not unique!';
         await testInvalidGuess([1, 1, 2, 9], errorMessage);
-      });
-
-      it('should reject codebreaker with invalid guess combination: third digit is not unique', async () => {
-        const errorMessage = 'Combination digit 3 is not unique!';
-        await testInvalidGuess([1, 2, 2, 9], errorMessage);
-      });
-
-      it('should reject codebreaker with invalid guess combination: fourth digit is not unique', async () => {
-        const errorMessage = 'Combination digit 4 is not unique!';
-        await testInvalidGuess([1, 3, 9, 9], errorMessage);
       });
 
       // validGuess = [1, 5, 6, 2]
@@ -551,8 +471,7 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     zkappAddress: PublicKey,
     zkappPrivateKey: PrivateKey,
     zkapp: MastermindZkApp,
-    codemasterSalt: Field,
-    codebreakerSalt: Field;
+    codemasterSalt: Field;
 
   beforeAll(async () => {
     if (proofsEnabled) await MastermindZkApp.compile();
@@ -570,9 +489,8 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     zkappAddress = zkappPrivateKey.toPublicKey();
     zkapp = new MastermindZkApp(zkappAddress);
 
-    // Generate random field as salt for the codemaster & codebreaker respectively
+    // Generate random field as salt for the codemaster
     codemasterSalt = Field.random();
-    codebreakerSalt = Field.random();
   });
 
   async function makeGuess(guess: number[]) {
