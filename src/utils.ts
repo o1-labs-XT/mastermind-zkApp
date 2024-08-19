@@ -1,10 +1,8 @@
-//TODO Refactor serialize & deserialize
-
-import { Field, Bool } from 'o1js';
+import { Field, Bool, Provable } from 'o1js';
 
 export {
-  serializeCombination,
-  deserializeCombination,
+  separateCombinationDigits,
+  compressCombinationDigits,
   validateCombination,
   serializeClue,
   deserializeClue,
@@ -12,42 +10,77 @@ export {
   checkIfSolved,
 };
 
-function serializeCombination(combination: number[]) {
-  const combinationBits = combination.map((x) => Field(x).toBits(4));
-  const serializedCombination = Field.fromBits(combinationBits.flat());
+/**
+ * Separates a four-digit Field value into its individual digits.
+ *
+ * @param combination - The four-digit Field to be separated.
+ * @returns An array of four Field digits representing the separated digits.
+ *
+ * @throws Will throw an error if the combination is not a four-digit number.
+ *
+ * @note The function first asserts that the input is a valid four-digit Field.
+ *       The digits are then witnessed, and their correctness is asserted by re-compressing
+ *       them back into the original combination and ensuring equality.
+ */
+function separateCombinationDigits(combination: Field) {
+  // Assert that the combination is a four-digit Field
+  const isFourDigit = combination
+    .greaterThanOrEqual(1000)
+    .and(combination.lessThanOrEqual(9999));
+  isFourDigit.assertTrue('The combination must be a four-digit Field!');
 
-  return serializedCombination;
+  // Witness single digits of the combination
+  const digits = Provable.witness(Provable.Array(Field, 4), () => {
+    const num = combination.toBigInt();
+    return [num / 1000n, (num / 100n) % 10n, (num / 10n) % 10n, num % 10n];
+  });
+
+  // Assert the correctness of the witnessed digit separation
+  compressCombinationDigits(digits).assertEquals(combination);
+
+  return digits;
 }
 
-function deserializeCombination(
-  serializedCombination: Field
-): [Field, Field, Field, Field] {
-  const bits = serializedCombination.toBits(16);
-  const combA = Field.fromBits(bits.slice(0, 4));
-  const combB = Field.fromBits(bits.slice(4, 8));
-  const combC = Field.fromBits(bits.slice(8, 12));
-  const combD = Field.fromBits(bits.slice(12, 16));
-
-  return [combA, combB, combC, combD];
+/**
+ * Combines an array of four digits into a single Field value.
+ *
+ * @note An additional check to ensure that the input has exactly four digits would typically be necessary.
+ * However, since this function is primarily used within {@link separateCombinationDigits}, the input is
+ * already validated as a four-digit Field array by `Provable.Array(Field, 4)`, which inherently ensures the array has a length of 4.
+ *
+ * @param combinationDigits - An array of four Field digits.
+ * @returns The combined Field element representing the original four-digit number.
+ */
+function compressCombinationDigits(combinationDigits: Field[]) {
+  return combinationDigits[0]
+    .mul(1000)
+    .add(combinationDigits[1].mul(100))
+    .add(combinationDigits[2].mul(10))
+    .add(combinationDigits[3]);
 }
 
-function validateCombination(combination: [Field, Field, Field, Field]) {
-  for (let i = 0; i < 4; i++) {
-    // Check that the combination does not contain the digit 0
-    combination[i]
+/**
+ * Validates the combination digits to ensure they meet the game rules.
+ *
+ * @param combinationDigits - An array of four Field digits representing the combination.
+ *
+ * @throws Will throw an error if any digit (except the first) is 0 or if any digits are not unique.
+ *
+ * @note The first digit is not checked for 0 because it would reduce the combination to a 3-digit value.
+ *       The combination digits are provided by {@link separateCombinationDigits}, which ensures they form
+ *       a valid four-digit number.
+ */
+function validateCombination(combinationDigits: Field[]) {
+  for (let i = 1; i < 4; i++) {
+    // Ensure the digit is not zero (only for digits 2, 3, and 4)
+    combinationDigits[i]
       .equals(0)
       .assertFalse(`Combination digit ${i + 1} should not be zero!`);
 
-    // Check that the combination contains one-digit numbers only
-    combination[i].assertLessThanOrEqual(
-      9,
-      `Combination digit ${i + 1} should be between 1 and 9!`
-    );
-
-    // Check that the combination digits are unique
-    for (let j = i + 1; j < 4; j++) {
-      combination[i].assertNotEquals(
-        combination[j],
+    // Ensure the digits are unique
+    for (let j = i; j < 4; j++) {
+      combinationDigits[i - 1].assertNotEquals(
+        combinationDigits[j],
         `Combination digit ${j + 1} is not unique!`
       );
     }
@@ -61,7 +94,7 @@ function serializeClue(clue: Field[]) {
   return serializedClue;
 }
 
-function deserializeClue(serialziedClue: Field): [Field, Field, Field, Field] {
+function deserializeClue(serialziedClue: Field): Field[] {
   const bits = serialziedClue.toBits(8);
   const clueA = Field.fromBits(bits.slice(0, 2));
   const clueB = Field.fromBits(bits.slice(2, 4));
@@ -81,10 +114,7 @@ function deserializeClue(serialziedClue: Field): [Field, Field, Field, Field] {
  * @returns - An array where each element represents the clue for a corresponding guess digit.
  *                           2 indicates a "hit" and 1 indicates a "blow".
  */
-function getClueFromGuess(
-  guess: [Field, Field, Field, Field],
-  solution: [Field, Field, Field, Field]
-) {
+function getClueFromGuess(guess: Field[], solution: Field[]) {
   let clue = Array.from({ length: 4 }, () => Field(0));
 
   for (let i = 0; i < 4; i++) {
@@ -117,3 +147,22 @@ function checkIfSolved(clue: Field[]) {
 
   return isSolved;
 }
+
+// function serializeCombination(combination: number[]) {
+//   const combinationBits = combination.map((x) => Field(x).toBits(4));
+//   const serializedCombination = Field.fromBits(combinationBits.flat());
+
+//   return serializedCombination;
+// }
+
+// function deserializeCombination(
+//   serializedCombination: Field
+// ): Field[] {
+//   const bits = serializedCombination.toBits(16);
+//   const combA = Field.fromBits(bits.slice(0, 4));
+//   const combB = Field.fromBits(bits.slice(4, 8));
+//   const combC = Field.fromBits(bits.slice(8, 12));
+//   const combD = Field.fromBits(bits.slice(12, 16));
+
+//   return [combA, combB, combC, combD];
+// }

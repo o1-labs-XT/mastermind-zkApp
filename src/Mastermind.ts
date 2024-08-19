@@ -1,3 +1,9 @@
+//TODO UInt32 range optimization checks
+//TODO Add unit tests for `separateCombinationDigits
+//TODO Add proved State check in initialize and document
+//TODO fix clue/blow bug
+//? TODO Add events
+
 import {
   Field,
   SmartContract,
@@ -11,7 +17,7 @@ import {
 } from 'o1js';
 
 import {
-  deserializeCombination,
+  separateCombinationDigits,
   validateCombination,
   serializeClue,
   getClueFromGuess,
@@ -23,7 +29,7 @@ export class MastermindZkApp extends SmartContract {
   @state(Field) codemasterId = State<Field>();
   @state(Field) codebreakerId = State<Field>();
   @state(Field) solutionHash = State<Field>();
-  @state(Field) serializedGuess = State<Field>();
+  @state(Field) unseparatedGuess = State<Field>();
   @state(Field) serializedClue = State<Field>();
   @state(UInt8) turnCount = State<UInt8>();
   @state(Bool) isSolved = State<Bool>();
@@ -41,16 +47,15 @@ export class MastermindZkApp extends SmartContract {
     // this.isSolved.set(Bool(false)); todo -> jsdoc
   }
 
-  //TODO decimal representation + Provable.witness() + unit tests
-  @method async createGame(serializedSecretCombination: Field, salt: Field) {
+  @method async createGame(unseparatedSecretCombination: Field, salt: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
 
     //! Restrict this method to be only called once at the beginnig of a game
     turnCount.assertEquals(0, 'A mastermind game is already created!');
 
     //! Deserialize and validate solution
-    const secretCombination = deserializeCombination(
-      serializedSecretCombination
+    const secretCombination = separateCombinationDigits(
+      unseparatedSecretCombination
     );
 
     validateCombination(secretCombination);
@@ -73,7 +78,7 @@ export class MastermindZkApp extends SmartContract {
 
   //! Before calling this method the codebreaker should read
   //! the codemaster clue beforehand and make a guess
-  @method async makeGuess(serializedGuess: Field) {
+  @method async makeGuess(unseparatedGuess: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
 
     //! Assert that the secret combination is not solved yet
@@ -94,7 +99,7 @@ export class MastermindZkApp extends SmartContract {
       'You have reached the number limit of attempts to solve the secret combination!'
     );
 
-    // Compute codebreaker ID: explain
+    // Compute codebreaker ID
     const computedCodebreakerId = Poseidon.hash(
       this.sender.getAndRequireSignature().toFields()
     );
@@ -120,17 +125,17 @@ export class MastermindZkApp extends SmartContract {
     );
 
     //! Deserialize and validate the guess combination
-    const guess = deserializeCombination(serializedGuess);
-    validateCombination(guess);
+    const guessDigits = separateCombinationDigits(unseparatedGuess);
+    validateCombination(guessDigits);
 
-    // Update the on-chain serialized guess
-    this.serializedGuess.set(serializedGuess);
+    // Update the on-chain unseparated guess
+    this.unseparatedGuess.set(unseparatedGuess);
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
   }
 
-  @method async giveClue(serializedSecretCombination: Field, salt: Field) {
+  @method async giveClue(unseparatedSecretCombination: Field, salt: Field) {
     const turnCount = this.turnCount.getAndRequireEquals();
 
     // Generate codemaster ID
@@ -168,7 +173,7 @@ export class MastermindZkApp extends SmartContract {
     );
 
     // Deserialize the secret combination
-    const solution = deserializeCombination(serializedSecretCombination);
+    const solution = separateCombinationDigits(unseparatedSecretCombination);
 
     //! Compute solution hash and assert integrity to state on-chain
     const computedSolutionHash = Poseidon.hash([...solution, salt]);
@@ -180,11 +185,11 @@ export class MastermindZkApp extends SmartContract {
       );
 
     // Fetch & deserialize the on-chain guess
-    const serializedGuess = this.serializedGuess.getAndRequireEquals();
-    const guess = deserializeCombination(serializedGuess);
+    const unseparatedGuess = this.unseparatedGuess.getAndRequireEquals();
+    const guessDigits = separateCombinationDigits(unseparatedGuess);
 
     // Scan the guess through the solution and return clue result(hit or blow)
-    let clue = getClueFromGuess(guess, solution);
+    let clue = getClueFromGuess(guessDigits, solution);
 
     // Check if the guess is correct & update the on-chain state
     let isSolved = checkIfSolved(clue);
@@ -198,8 +203,3 @@ export class MastermindZkApp extends SmartContract {
     this.turnCount.set(turnCount.add(1));
   }
 }
-
-//TODO Add events
-//TODO? prevent the codemaster from being the codebreaker of the same game
-
-//TODO save one state by merging master id into solution hash
