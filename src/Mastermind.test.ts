@@ -107,10 +107,18 @@ describe('Mastermind ZkApp Tests', () => {
       await expect(giveClueTx()).rejects.toThrowError(expectedErrorMessage);
     });
 
+    it('should reject calling `initGame` when maxAttempts exceeds 15', async () => {
+      const initTx = async () => await initializeGame(zkapp, codemasterKey, 20);
+
+      const expectedErrorMessage =
+        'The maximum number of attempts allowed is 15!';
+      await expect(initTx()).rejects.toThrowError(expectedErrorMessage);
+    });
+
     // This test verifies that the zkapp initial state values are correctly set up
     it('Initialize game', async () => {
-      const roundLimit = 5;
-      await initializeGame(zkapp, codemasterKey, roundLimit);
+      const maxAttempts = 5;
+      await initializeGame(zkapp, codemasterKey, maxAttempts);
 
       // Initialized with `super.init()`
       const turnCount = zkapp.turnCount.get();
@@ -132,8 +140,8 @@ describe('Mastermind ZkApp Tests', () => {
       expect(serializedClue).toEqual(Field(0));
 
       // Initialized manually
-      const rounds = zkapp.roundsLimit.get();
-      expect(rounds).toEqual(UInt8.from(roundLimit));
+      const rounds = zkapp.maxAttempts.get();
+      expect(rounds).toEqual(UInt8.from(maxAttempts));
 
       const isSolved = zkapp.isSolved.get().toBoolean();
       expect(isSolved).toEqual(false);

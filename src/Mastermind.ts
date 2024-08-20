@@ -22,7 +22,7 @@ import {
 } from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
-  @state(UInt8) roundsLimit = State<UInt8>();
+  @state(UInt8) maxAttempts = State<UInt8>();
   @state(Field) codemasterId = State<Field>();
   @state(Field) codebreakerId = State<Field>();
   @state(Field) solutionHash = State<Field>();
@@ -33,7 +33,7 @@ export class MastermindZkApp extends SmartContract {
 
   // Note that we have an input for this method this is why we dont use `init() {}` instead
   //! This method can be called by anyone anytime -> risk to reset the game
-  @method async initGame(roundsNO: UInt8) {
+  @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertFalse('The game has already been initialized!');
 
@@ -41,7 +41,11 @@ export class MastermindZkApp extends SmartContract {
     super.init();
 
     // Only set the states with initial non-zero values
-    this.roundsLimit.set(roundsNO);
+    maxAttempts.assertLessThanOrEqual(
+      15,
+      'The maximum number of attempts allowed is 15!'
+    );
+    this.maxAttempts.set(maxAttempts);
 
     // Boolean states are set to false thanks to the `super.init()` -> no need to set like in this line
     // this.isSolved.set(Bool(false));
@@ -99,9 +103,9 @@ export class MastermindZkApp extends SmartContract {
     );
 
     //! Assert that the codebreaker has not reached the limit number of attempts
-    const roundLimit = this.roundsLimit.getAndRequireEquals();
+    const maxAttempts = this.maxAttempts.getAndRequireEquals();
     turnCount.assertLessThan(
-      roundLimit.mul(2),
+      maxAttempts.mul(2),
       'You have reached the number limit of attempts to solve the secret combination!'
     );
 
@@ -161,9 +165,9 @@ export class MastermindZkApp extends SmartContract {
       );
 
     //! Assert that the codebreaker has not reached the limit number of attempts
-    const roundLimit = this.roundsLimit.getAndRequireEquals();
+    const maxAttempts = this.maxAttempts.getAndRequireEquals();
     turnCount.assertLessThanOrEqual(
-      roundLimit.mul(2),
+      maxAttempts.mul(2),
       'The codebreaker has finished the number of attempts without solving the secret combination!'
     );
 
