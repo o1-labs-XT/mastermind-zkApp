@@ -31,7 +31,7 @@ async function initializeGame(
 
   // The deployer initializes the Mastermind zkapp
   const initTx = await Mina.transaction(deployerAccount, async () => {
-    zkapp.initGame(UInt8.from(rounds));
+    await zkapp.initGame(UInt8.from(rounds));
   });
 
   await initTx.prove();
@@ -75,8 +75,36 @@ describe('Mastermind ZkApp Tests', () => {
   });
 
   describe('Deploy and initialize Mastermind zkApp', () => {
-    it('Generate and Deploy `Mastermind` smart contract', async () => {
+    it('Deploy a `Mastermind` zkApp', async () => {
       await localDeploy(zkapp, codemasterKey, zkappPrivateKey);
+    });
+
+    it('Should reject calling `createGame` method before `initGame`', async () => {
+      const createGameTx = async () => {
+        const tx = await Mina.transaction(codemasterPubKey, async () => {
+          await zkapp.createGame(Field(1234), codemasterSalt);
+        });
+
+        await tx.prove();
+        await tx.sign([codemasterKey]).send();
+      };
+
+      const expectedErrorMessage = 'The game has not been initialized yet!';
+      await expect(createGameTx()).rejects.toThrowError(expectedErrorMessage);
+    });
+
+    it('Should reject calling `giveClue` method before `initGame`', async () => {
+      const giveClueTx = async () => {
+        const tx = await Mina.transaction(codemasterPubKey, async () => {
+          await zkapp.giveClue(Field(1234), codemasterSalt);
+        });
+
+        await tx.prove();
+        await tx.sign([codemasterKey]).send();
+      };
+
+      const expectedErrorMessage = 'The game has not been initialized yet!';
+      await expect(giveClueTx()).rejects.toThrowError(expectedErrorMessage);
     });
 
     // This test verifies that the zkapp initial state values are correctly set up
@@ -115,7 +143,7 @@ describe('Mastermind ZkApp Tests', () => {
   describe('createGame method tests', () => {
     async function testInvalidCreateGame(
       combination: number[],
-      errorMessage?: string
+      expectedErrorMessage?: string
     ) {
       const secretCombination = compressCombinationDigits(
         combination.map(Field)
@@ -130,8 +158,15 @@ describe('Mastermind ZkApp Tests', () => {
         await tx.sign([codemasterKey]).send();
       };
 
-      await expect(createGameTx()).rejects.toThrowError(errorMessage);
+      await expect(createGameTx()).rejects.toThrowError(expectedErrorMessage);
     }
+
+    it('should reject calling `initGame` a second time', async () => {
+      const initTx = async () => await initializeGame(zkapp, codemasterKey, 5);
+
+      const expectedErrorMessage = 'The game has already been initialized!';
+      await expect(initTx()).rejects.toThrowError(expectedErrorMessage);
+    });
 
     it('should reject codemaster with invalid secret combination: second digit is 0', async () => {
       const expectedErrorMessage = 'Combination digit 2 should not be zero!';
@@ -166,12 +201,15 @@ describe('Mastermind ZkApp Tests', () => {
     });
 
     it('should prevent players from re-creating a game: current codemaster included', async () => {
-      const errorMessage = 'A mastermind game is already created!';
-      testInvalidCreateGame([2, 3, 4, 5], errorMessage);
+      const expectedErrorMessage = 'A mastermind game is already created!';
+      testInvalidCreateGame([2, 3, 4, 5], expectedErrorMessage);
     });
 
     describe('makeGuess method tests: first guess', () => {
-      async function testInvalidGuess(guess: number[], errorMessage?: string) {
+      async function testInvalidGuess(
+        guess: number[],
+        expectedErrorMessage?: string
+      ) {
         const unseparatedGuess = compressCombinationDigits(guess.map(Field));
 
         const makeGuessTx = async () => {
@@ -186,7 +224,7 @@ describe('Mastermind ZkApp Tests', () => {
           await tx.sign([codebreakerKey]).send();
         };
 
-        await expect(makeGuessTx()).rejects.toThrowError(errorMessage);
+        await expect(makeGuessTx()).rejects.toThrowError(expectedErrorMessage);
       }
 
       it('should reject codebreaker with invalid guess combination: fouth digit is 0', async () => {
@@ -238,7 +276,7 @@ describe('Mastermind ZkApp Tests', () => {
     describe('giveClue method tests', () => {
       async function testInvalidClue(
         combination: number[],
-        errorMessage?: string,
+        expectedErrorMessage?: string,
         signerKey = codemasterKey,
         signerSalt = codemasterSalt
       ) {
@@ -258,7 +296,7 @@ describe('Mastermind ZkApp Tests', () => {
           await tx.sign([signerKey]).send();
         };
 
-        await expect(giveClueTx()).rejects.toThrowError(errorMessage);
+        await expect(giveClueTx()).rejects.toThrowError(expectedErrorMessage);
       }
 
       it('should reject any caller other than the codemaster', async () => {
@@ -323,7 +361,7 @@ describe('Mastermind ZkApp Tests', () => {
     describe('makeGuess method tests: second guess onwards', () => {
       async function testInvalidGuess(
         guess: number[],
-        errorMessage?: string,
+        expectedErrorMessage?: string,
         signerKey = codebreakerKey
       ) {
         const unseparatedGuess = compressCombinationDigits(guess.map(Field));
@@ -340,7 +378,7 @@ describe('Mastermind ZkApp Tests', () => {
           await tx.sign([signerKey]).send();
         };
 
-        await expect(makeGuessTx()).rejects.toThrowError(errorMessage);
+        await expect(makeGuessTx()).rejects.toThrowError(expectedErrorMessage);
       }
 
       it('should reject any caller other than the codebreaker', async () => {
@@ -563,13 +601,18 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
   });
 
   it('should reject next guess: secret is already solved', async () => {
-    const errorMessage = 'You have already solved the secret combination!';
-    await expect(makeGuess([7, 1, 6, 3])).rejects.toThrowError(errorMessage);
+    const expectedErrorMessage =
+      'You have already solved the secret combination!';
+    await expect(makeGuess([7, 1, 6, 3])).rejects.toThrowError(
+      expectedErrorMessage
+    );
   });
 
   it('should reject next clue: secret is already solved', async () => {
-    const errorMessage =
+    const expectedErrorMessage =
       'The codebreaker has already solved the secret combination!';
-    await expect(giveClue([2, 2, 2, 2])).rejects.toThrowError(errorMessage);
+    await expect(giveClue([2, 2, 2, 2])).rejects.toThrowError(
+      expectedErrorMessage
+    );
   });
 });

@@ -1,7 +1,4 @@
 //TODO UInt32 range optimization checks
-//TODO Add unit tests for `separateCombinationDigits
-//TODO Add proved State check in initialize and document
-//TODO fix clue/blow bug
 //? TODO Add events
 
 import {
@@ -37,6 +34,9 @@ export class MastermindZkApp extends SmartContract {
   // Note that we have an input for this method this is why we dont use `init() {}` instead
   //! This method can be called by anyone anytime -> risk to reset the game
   @method async initGame(roundsNO: UInt8) {
+    const isInitialized = this.account.provedState.getAndRequireEquals();
+    isInitialized.assertFalse('The game has already been initialized!');
+
     // Sets your entire state to 0.
     super.init();
 
@@ -44,10 +44,13 @@ export class MastermindZkApp extends SmartContract {
     this.roundsLimit.set(roundsNO);
 
     // Boolean states are set to false thanks to the `super.init()` -> no need to set like in this line
-    // this.isSolved.set(Bool(false)); todo -> jsdoc
+    // this.isSolved.set(Bool(false));
   }
 
   @method async createGame(unseparatedSecretCombination: Field, salt: Field) {
+    const isInitialized = this.account.provedState.getAndRequireEquals();
+    isInitialized.assertTrue('The game has not been initialized yet!');
+
     const turnCount = this.turnCount.getAndRequireEquals();
 
     //! Restrict this method to be only called once at the beginnig of a game
@@ -79,6 +82,9 @@ export class MastermindZkApp extends SmartContract {
   //! Before calling this method the codebreaker should read
   //! the codemaster clue beforehand and make a guess
   @method async makeGuess(unseparatedGuess: Field) {
+    const isInitialized = this.account.provedState.getAndRequireEquals();
+    isInitialized.assertTrue('The game has not been initialized yet!');
+
     const turnCount = this.turnCount.getAndRequireEquals();
 
     //! Assert that the secret combination is not solved yet
@@ -136,6 +142,9 @@ export class MastermindZkApp extends SmartContract {
   }
 
   @method async giveClue(unseparatedSecretCombination: Field, salt: Field) {
+    const isInitialized = this.account.provedState.getAndRequireEquals();
+    isInitialized.assertTrue('The game has not been initialized yet!');
+
     const turnCount = this.turnCount.getAndRequireEquals();
 
     // Generate codemaster ID
