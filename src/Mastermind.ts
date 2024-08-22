@@ -1,4 +1,3 @@
-//TODO UInt32 range optimization checks
 //? TODO Add events
 
 import {
@@ -23,12 +22,12 @@ import {
 
 export class MastermindZkApp extends SmartContract {
   @state(UInt8) maxAttempts = State<UInt8>();
+  @state(UInt8) turnCount = State<UInt8>();
   @state(Field) codemasterId = State<Field>();
   @state(Field) codebreakerId = State<Field>();
   @state(Field) solutionHash = State<Field>();
   @state(Field) unseparatedGuess = State<Field>();
   @state(Field) serializedClue = State<Field>();
-  @state(UInt8) turnCount = State<UInt8>();
   @state(Bool) isSolved = State<Bool>();
 
   // Note that we have an input for this method this is why we dont use `init() {}` instead
@@ -40,11 +39,16 @@ export class MastermindZkApp extends SmartContract {
     // Sets your entire state to 0.
     super.init();
 
-    // Only set the states with initial non-zero values
+    maxAttempts.assertGreaterThanOrEqual(
+      UInt8.from(5),
+      'The minimum number of attempts allowed is 5!'
+    );
+
     maxAttempts.assertLessThanOrEqual(
-      15,
+      UInt8.from(15),
       'The maximum number of attempts allowed is 15!'
     );
+
     this.maxAttempts.set(maxAttempts);
 
     // Boolean states are set to false thanks to the `super.init()` -> no need to set like in this line
@@ -60,7 +64,7 @@ export class MastermindZkApp extends SmartContract {
     //! Restrict this method to be only called once at the beginnig of a game
     turnCount.assertEquals(0, 'A mastermind game is already created!');
 
-    //! Deserialize and validate solution
+    //! Separate combination digits and validate
     const secretCombination = separateCombinationDigits(
       unseparatedSecretCombination
     );
@@ -71,7 +75,7 @@ export class MastermindZkApp extends SmartContract {
     const solutionHash = Poseidon.hash([...secretCombination, salt]);
     this.solutionHash.set(solutionHash);
 
-    // Generate codemaster ID -> taking address & salt
+    // Generate codemaster ID
     const codemasterId = Poseidon.hash(
       this.sender.getAndRequireSignature().toFields()
     );
@@ -79,7 +83,7 @@ export class MastermindZkApp extends SmartContract {
     // Store codemaster ID on-chain
     this.codemasterId.set(codemasterId);
 
-    // Initiate game & increment on-chain turnCount
+    // Increment on-chain turnCount
     this.turnCount.set(turnCount.add(1));
   }
 
@@ -134,7 +138,7 @@ export class MastermindZkApp extends SmartContract {
       'You are not the codebreaker of this game!'
     );
 
-    //! Deserialize and validate the guess combination
+    //! Separate and validate the guess combination
     const guessDigits = separateCombinationDigits(unseparatedGuess);
     validateCombination(guessDigits);
 
