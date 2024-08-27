@@ -1,5 +1,3 @@
-//? TODO Add events
-
 import {
   Field,
   SmartContract,
@@ -30,8 +28,6 @@ export class MastermindZkApp extends SmartContract {
   @state(Field) serializedClue = State<Field>();
   @state(Bool) isSolved = State<Bool>();
 
-  // Note that we have an input for this method this is why we dont use `init() {}` instead
-  //! This method can be called by anyone anytime -> risk to reset the game
   @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertFalse('The game has already been initialized!');
@@ -50,9 +46,6 @@ export class MastermindZkApp extends SmartContract {
     );
 
     this.maxAttempts.set(maxAttempts);
-
-    // Boolean states are set to false thanks to the `super.init()` -> no need to set like in this line
-    // this.isSolved.set(Bool(false));
   }
 
   @method async createGame(unseparatedSecretCombination: Field, salt: Field) {
@@ -87,7 +80,7 @@ export class MastermindZkApp extends SmartContract {
     this.turnCount.set(turnCount.add(1));
   }
 
-  //! Before calling this method the codebreaker should read
+  //! Before calling this method the codebreaker should interpret
   //! the codemaster clue beforehand and make a guess
   @method async makeGuess(unseparatedGuess: Field) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
@@ -113,7 +106,7 @@ export class MastermindZkApp extends SmartContract {
       'You have reached the number limit of attempts to solve the secret combination!'
     );
 
-    // Compute codebreaker ID
+    // Generate an ID for the caller
     const computedCodebreakerId = Poseidon.hash(
       this.sender.getAndRequireSignature().toFields()
     );
@@ -189,7 +182,7 @@ export class MastermindZkApp extends SmartContract {
       'Please wait for the codebreaker to make a guess!'
     );
 
-    // Deserialize the secret combination
+    // Separate the secret combination digits
     const solution = separateCombinationDigits(unseparatedSecretCombination);
 
     //! Compute solution hash and assert integrity to state on-chain
@@ -201,7 +194,7 @@ export class MastermindZkApp extends SmartContract {
         'The secret combination is not compliant with the stored hash on-chain!'
       );
 
-    // Fetch & deserialize the on-chain guess
+    // Fetch & separate the on-chain guess
     const unseparatedGuess = this.unseparatedGuess.getAndRequireEquals();
     const guessDigits = separateCombinationDigits(unseparatedGuess);
 

@@ -1,5 +1,17 @@
-//TODO Add test case 'should reject codebreaker to call this method before game is created'
-//TODO Refactor
+/**
+ * This file contains integration tests for the Mastermind zkApp. The tests involve deploying, initializing,
+ * and advancing the game logic in a controlled sequence.
+ *
+ * The integration tests cover various scenarios, including a case where the Code Breaker fails to solve the game
+ * with `maxAttempts = 5` and another where the game is successfully solved.
+ *
+ * These tests focus on verifying:
+ * - Method access control, ensuring zkApp method calls are restricted to the correct addresses (e.g., `makeGuess` restricted to the Code Breaker).
+ * - Enforcement of method call frequency limits (e.g., ensuring `initGame` and `createGame` are executed only once).
+ * - Correct method call sequence (e.g., verifying that `createGame` is called before `makeGuess`).
+ * - Validation of input integrity, including checks on value ranges, sizes, and the correctness of hashes and salts.
+ * - Accurate updates to the on-chain state following method executions.
+ */
 
 import { MastermindZkApp } from './Mastermind';
 import { Field, Mina, PrivateKey, PublicKey, AccountUpdate, UInt8 } from 'o1js';
@@ -112,6 +124,14 @@ describe('Mastermind ZkApp Tests', () => {
 
       const expectedErrorMessage =
         'The maximum number of attempts allowed is 15!';
+      await expect(initTx()).rejects.toThrowError(expectedErrorMessage);
+    });
+
+    it('should reject calling `initGame` when maxAttempts is below 5', async () => {
+      const initTx = async () => await initializeGame(zkapp, codemasterKey, 4);
+
+      const expectedErrorMessage =
+        'The minimum number of attempts allowed is 5!';
       await expect(initTx()).rejects.toThrowError(expectedErrorMessage);
     });
 
