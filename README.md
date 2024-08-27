@@ -2,11 +2,54 @@
 
 ![alt text](./mastermind-board.png)
 
-# Table of Contents [TODO]
+# Table of Contents
 
-- General
+- [Understanding the Mastermind Game](#understanding-the-mastermind-game)
 
-- Game Specific
+  - [Overview](#overview)
+  - [Game Rules](#game-rules)
+
+- [Mina zkApp Structure](#mina-zkapp-strucuture)
+
+  - [Introduction](#introduction)
+  - [zkApp Components](#zkapp-components)
+    - [State](#states)
+    - [Methods](#methods)
+
+- [Mastermind zkApp Structure](#mastermind-zkapp-structure)
+
+  - [Mastermind States](#mastermind-states)
+    - [maxAttempts](#maxattempts)
+    - [turnCount](#turncount)
+    - [codemasterId & codebreakerId](#codemasterid--codebreakerid)
+    - [solutionHash](#solutionhash)
+    - [unseparatedGuess](#unseparatedguess)
+    - [serializedClue](#serializedclue)
+    - [isSolved](#issolved)
+  - [Mastermind Methods](#mastermind-methods)
+    - [initGame](#initgame)
+    - [createGame](#creategame)
+    - [makeGuess](#makeguess)
+    - [giveClue](#giveclue)
+
+- [Security Considerations](#security-considerations)
+
+  - [Controlling Method Invocation Patterns](#controlling-method-invocation-patterns)
+  - [Securing Method Access with Authorization Controls](#securing-method-access-with-authorization-controls)
+  - [Rigorous Input Validation and State Verification](#rigorous-input-validation-and-state-verification)
+  - [Safeguarding Private Inputs in zk-SNARK Circuits](#safeguarding-private-inputs-in-zk-snark-circuits)
+  - [Preventing Underconstrained Proofs](#preventing-underconstrained-proofs)
+
+- [Good Practices](#good-practices)
+
+  - [Structure of the Project](#structure-of-the-project)
+  - [Unit and Integration Tests](#unit-and-integration-tests)
+
+- [API Exaplanation](#api-explanation)
+  - [Benchmarking](#benchmarking)
+  - [Provable.witness](#provablewitness)
+  - [Provable.if](#provableif)
+  - [Field vs { UInt8, UInt32, UInt64 }](#field-vs--uint8-uint32-uint64-)
 
 # Understanding the Mastermind Game
 
@@ -37,7 +80,7 @@
 
 - The game continues with alternating guesses and clues until the Code Breaker achieves 4 hits and uncovers the secret combination or fails to do so within the **maximum allowed attempts**.
 
-# Mina zkApp strucuture
+# Mina zkApp Structure
 
 ## Introduction
 
@@ -109,7 +152,7 @@ As demonstrated in the [Mastermind zkApp](./src/Mastermind.ts), a zkApp primaril
   @method async myMethod(secret: Field) {...}
   ```
 
-# Mina zkApp strucuture
+# Mastermind zkApp Structure
 
 Following the game rules, the [MastermindZkApp](./src/Mastermind.ts) should be deployed:
 
@@ -185,7 +228,7 @@ It is crucial for determining the end of the game, signaling completion once the
 
 ## Mastermind Methods
 
-### initGame()
+### initGame
 
 **Note**: The `init()` method is predefined in the base `SmartContract` class, similar to a constructor.
 
@@ -247,7 +290,7 @@ There are three variations for initializing a zkApp:
 
 - Since the custom initialization method can be called by anyone at any time, refer to [Security Considerations] to ensure it is implemented securely.
 
-### createGame()
+### createGame
 
 - This method should be called **after** initializing the game and **only once**.
 - The method executes successfully when the following conditions are met:
@@ -263,35 +306,57 @@ There are three variations for initializing a zkApp:
 
 ---
 
-### makeGuess() [TODO]
+### makeGuess
 
-- placeholder
+- This method should be called directly after a game is created or when a clue is given for the previous guess.
 
-### giveClue() [TODO]
+- There are a few restrictions on calling this method to maintain a consistent progression of the game:
 
-- placeholder
+  - If the game `isSolved`, then no one is able to call this method.
+  - If the code breaker exceeds the `maxAttempts`, this method is blocked and cannot be called.
+  - This method also enforces the correct sequence of players' interactions by only allowing the code breaker to make a guess if the `turnCount` state is odd.
 
-## Security Consdierations [TORefine]
+- Special handling is required when the method is called for the first time:
 
-To ensure that a zkApp operates securely and prevents unintended behavior, it is essential to implement robust security measures that enforce trustless and consistent operation. Key security considerations include:
+  - The first player to call the method and make a guess will be registered as the code breaker for the remainder of the game.
+  - The `Provable.if` API is used to either set the current caller's `PublicKey` hash or fetch the registered code breaker ID.
 
-- **Method Call Frequency and Sequence Enforcement**
+- Once the `makeGuess` method is called successfully for the first time and a code breaker ID is registered, the method will restrict any caller except the registered one.
 
-- **Method Call Authorization**
+- After all the preceding checks pass, the code breaker's guess combination is validated, stored on-chain, and the `turnCount` is incremented. This then awaits the code master to read the guess and provide a clue.
 
-- **Input and On-Chain State Validation**
+### giveClue
 
-- **Security of Private Input**
+- Similar to the `makeGuess` method, there are a few restrictions on calling this method to maintain a consistent progression of the game:
 
-- **Avoidance of Underconstrained Proofs**
+  - The caller is restricted to be only the registered code master ID.
+  - The correct sequence is enforced by checking that `turnCount` is non-zero (to avoid colliding with the `createGame` method call) and even.
+  - If the game `isSolved`, this method is blocked and cannot be executed.
+  - If the code breaker exceeds the `maxAttempts`, this method is blocked and cannot be executed.
 
-### Method Call Frequency & Sequence Enforcement
+- After the preceding checks pass, the plain `unseparatedSecretCombination` input is separated into 4 digits, hashed along with the salt, and asserted against the `solutionHash` state to ensure the integrity of the secret.
 
-- It's crucial to limit the frequency of method calls based on specific conditions, such as ensuring certain methods can only be executed once or under specific circumstances.
+- Next, the guess from the previous turn is fetched, separated, and compared against the secret combination digits to provide a clue:
 
-- Additionally, ensure that methods are called in the correct order to prevent the app from entering an invalid or unintended state.
+  - If the clue results in 4 hits (e.g., `2 2 2 2`), the game is marked as solved, and the `isSolved` state is set to `Bool(true)`.
+  - The clue is then serialized into 4 2-bit Fields, packed as an 8-bit field in decimal, and stored on-chain.
+  - Note that this technique requires the adversary to deserialize and correctly interpret the digits before making the next guess.
 
-#### Initialize: Must Be Called First and Only Once
+- Finally, the `turnCount` is incremented, making it odd and awaiting the code breaker to deserialize and read the clue before making a meaningful guess—assuming the game is not already solved or has not reached the maximum number of attempts.
+
+# Security Considerations
+
+To ensure that a zkApp operates securely and avoids unintended behavior, it is crucial to implement comprehensive security measures that enforce trustless and consistent operation.
+
+When developing a zkApp, various security checks should be incorporated, including access control mechanisms similar to `modifiers` in Solidity, input validation, and specific safeguards related to zk-SNARK circuits.
+
+Key security considerations include:
+
+## Controlling Method Invocation Patterns
+
+- It's crucial to establish strict rules for the order and frequency of method calls to prevent unauthorized sequences or excessive invocation. This ensures that the zkApp’s logic is executed in a controlled and predictable manner, reducing the risk of exploitation.
+
+### Initialize: Must Be Called First and Only Once
 
 - For the `initGame` method, it's essential to ensure that this method is called immediately after deployment, with no other methods executed beforehand.
 
@@ -308,7 +373,7 @@ To ensure that a zkApp operates securely and prevents unintended behavior, it is
 
   - It's also crucial that **all** other methods assert that `provedState` is `true` to ensure the zkApp has been properly initialized, as `provedState` becomes `true` after `initGame` is invoked.
 
-#### Enforce Method Call Once in a Specific Sequence
+### Enforce Method Call Once in a Specific Sequence
 
 For the `createGame` method, we need to ensure that a player can call this method **only once after the game is initialized** and before any other methods are executed.
 
@@ -319,9 +384,9 @@ For the `createGame` method, we need to ensure that a player can call this metho
   turnCount.assertEquals(0, 'A mastermind game is already created!');
   ```
 
-### Method Call Authorization
+## Securing Method Access with Authorization Controls
 
-- Restricting method calls to specific addresses is crucial to ensure that only authorized parties can execute sensitive operations.
+- It's crucial to have robust authorization mechanisms to restrict access to sensitive methods. This ensures that only verified and authorized entities can execute critical functions within the zkApp, protecting it from unauthorized use.
 
 In the case of our Mastermind zkApp, it's essential to limit method access to the code master and the code breaker. Otherwise, anyone could access the zkApp and disrupt the game flow.
 
@@ -348,11 +413,13 @@ this.codemasterId
 
 To learn more about scaling data storage, including off-chain storage, actions/reducers, or other packing techniques, follow the next levels of this game and explore the relevant APIs in the o1js library.
 
-### Input and On-Chain State Validation
+## Rigorous Input Validation and State Verification
+
+- Enforce stringent validation of all inputs and verify the integrity of the on-chain state before executing any dependent logic. This prevents invalid or malicious data from affecting the zkApp’s operations, maintaining overall security and correctness.
 
 - Validate inputs and on-chain state for correctness by checking value ranges, enforcing equality, and applying necessary conditions.
 
-For example, in the case of the `maxAttempts` state, it’s useful to allow flexibility in setting the number of attempts. However, an unrestricted range could be manipulated—small values like `0` to `4` would favor the Code Master by giving fewer chances to the Code Breaker, while larger values would do the opposite. Therefore, it’s important to assert that the `maxAttempts` state falls within a reasonable range, such as `5` to `20`, to ensure a balanced game.
+- For example, in the case of the `maxAttempts` state, it’s useful to allow flexibility in setting the number of attempts. However, an unrestricted range could be manipulated—small values like `0` to `4` would favor the Code Master by giving fewer chances to the Code Breaker, while larger values would do the opposite. Therefore, it’s important to assert that the `maxAttempts` state falls within a reasonable range, such as `5` to `20`, to ensure a balanced game.
 
 For example:
 
@@ -368,96 +435,315 @@ maxAttempts.assertLessThanOrEqual(
 );
 ```
 
-### Security of Private Input
+## Safeguarding Private Inputs in zk-SNARK Circuits
 
-Protect the security of private inputs by securely committing them as state hashes, ensuring they cannot be manipulated or exposed.
+- Protect sensitive input data by ensuring that it remains confidential within the zk-SNARK circuit. It's critical to verify inputs without exposing their values, thereby preventing data leaks or manipulation.
 
-Since the combination is a 4-digit number, it could inadvertently disclose information about the `solutionHash`, as state updates are publicly stored on the Mina blockchain and could be easily brute-forced.
+- Protect the security of private inputs by securely committing them as state hashes, ensuring they cannot be manipulated or exposed.
 
-To enhance security, a salt (random field) is introduced to the hash input: `hash(secret, salt)`. This adds approximately 256 bits of security, making it astronomically difficult to uncover the original input through brute force.
+- For example:
 
-However, while the use of salt increases security, it also adds complexity in debugging, as it becomes more difficult to trace errors related to the hash. The hash now varies with each change in the secret or the salt, making it harder to pinpoint the source of issues.
+  - Since the combination in a Mastermind game is a 4-digit number, it could inadvertently disclose information about the `solutionHash`, as state updates are publicly stored on the Mina blockchain and could be easily brute-forced.
 
-- [TODO] Add a screenshot
+- To enhance security, a salt (random field) is introduced to the hash input: `hash(secret, salt)`. This adds approximately `256` bits of security, making it astronomically difficult to uncover the original input through brute force.
 
-### Avoidance of Underconstrained Proofs
+- However, while the use of salt increases security, it also adds complexity in debugging, as it becomes more difficult to trace errors related to the hash. The hash now varies with each change in the secret or the salt, making it harder to pinpoint the source of issues.
 
-- Ensure that all provable code is fully constrained to prevent any underconstrained proofs, which could lead to vulnerabilities or unintended behavior.
+## Preventing Underconstrained Proofs
 
-It's crucial to properly constrain the provable code by using assertions.
+- Prevent vulnerabilities by ensuring that all provable code within the zk-SNARK circuit is fully constrained. This avoids the creation of underconstrained proofs, which could otherwise lead to security breaches or unintended behavior.
+  It's crucial to properly constrain the provable code by using assertions.
 
 - For example, the API `Field.equals(2)` is not the same as `Field.assertEquals(2)`. The former returns a `Bool`, while the latter adds a constraint on the equality and will cause proof generation and verification to fail if the equality check fails.
 - The same applies to other comparisons and checks, such as `greaterThan`, `lessThan`, etc.
 
 - Be cautious when using the `Provable.witness` API. Ensure that its output is consistently constrained, operating based on another field or variable.
-  - Please refer to the API documentation [here](#) for more details.
+  - Please refer to the API documentation [here](#provablewitness) for more details.
 
 ---
 
-For more details on security considerations, refer to this excellent guide on [Security and zkApps](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/secure-zkapps)
+> Note that the security considerations documented here are specific to the Mastermind game. For more details on general security considerations, please refer to this excellent guide on [Security and zkApps](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/secure-zkapps).
 
-## Good practices [TODO]
+# Good practices
 
-### structure of the project
+## Structure of the Project
 
-- separate provable code as circiut templates
-- main zkApp readability
-- conventions and notations
+- Unlike other zkDSLs, the `o1js` SDK handles both circuit writing for the zkApp as well as interacting with the blockchain, whether for deployment or interaction.
 
-### Unit and integration tests
+  - At times, it can be confusing to distinguish between these functionalities within the zkApp. To address this, it’s a good practice to shift provable code (i.e., the code that defines the zk-SNARK circuits) to a separate file(s).
 
-- unit tests for internal circuit template behaviour
-- integration tests for zkApp happy and unhappy behaviour
+  - Separating the circuit code into its own file is beneficial for testing purposes. By isolating the main circuit "templates," you can unit test them separately, ensuring that the core logic is sound before integrating it into the larger zkApp. This modular approach improves maintainability and makes it easier to debug and verify the circuit logic independently.
 
-- start with localBlockchain and later to devnet & mainnet
+  - This approach enhances readability and keeps the zkApp file less bloated, allowing it to focus more on the blockchain interaction logic. This makes the zkApp resemble a traditional smart contract, where the primary concern is handling transactions and state changes on the blockchain.
+
+---
+
+The `MastermindZkApp` project is organized to enhance clarity, maintainability, and ease of testing. Key files include:
+
+```sh
+src/
+├── index.ts
+├── Mastermind.test.ts
+├── Mastermind.ts
+├── utils.test.ts
+└── utils.ts
+```
+
+- **`index.ts`**: Serves as the entry point, importing and exporting all essential smart contract classes for the zkApp(s).
+
+- **`utils.ts`**: Contains reusable utility functions that act as standalone `circuit templates`. By isolating these logic components, the main zkApp code remains focused and uncluttered.
+
+- **`utils.test.ts`**: Provides unit tests for the functions in `utils.ts`, ensuring each logic component works correctly before integration into the zkApp. This helps catch issues early and improves overall reliability.
+
+- **`Mastermind.ts`**: The core file where the game logic and blockchain interactions are defined. This ensures that the zkApp's mechanics and state management are clear and maintainable.
+
+- **`Mastermind.test.ts`**: Contains integration tests using a `localBlockchain`. These tests validate the zkApp’s behavior in various scenarios, ensuring it functions correctly and securely in a simulated environment.
+
+- **Note**: Files that contain zkApp code and their test files typically start with an uppercase letter, such as `Mastermind.ts`. This convention aids in distinguishing and navigating the codebase more easily.
+
+## Unit and Integration Tests
+
+- It’s best practice to separate unit tests, which focus on testing the logic of individual zkApp components, from integration tests, which evaluate the zkApp as a whole, interacting with a `localBlockchain` environment.
+
+- In both unit and integration tests, consider an adversarial environment. Test both the happy and unhappy paths, ensuring that all assumptions about trust and security within the zkApp are validated.
+
+- Integration tests serve as an additional check, not only for the zkApp’s overall functionality but also indirectly validating the utility components tested in unit tests.
+
+- Begin testing your zkApp on a `localBlockchain` as it is faster and requires less setup (e.g., keys, deployment). After thorough local testing, deploy it on devnet to interact with it in an environment similar to mainnet and track transactions using Mina Scan.
+
+- For code examples:
+
+  - Refer to the Mastermind game [integration tests](./src/Mastermind.test.ts) for integration test examples.
+  - Refer to the Mastermind zkApp’s [unit tests](./src/utils.test.ts) for examples of testing the logic components.
+
+- For more details, refer to the documentation on [Testing zkApps Locally](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/testing-zkapps-locally).
+
+#### Notes
+
+- Integration tests not only evaluate the behavior and interactions of a zkApp but also validate that the provable code is consistent.
+
+  - For example, if you use the `.toBigInt()` method to convert a `Field` to `bigint` within a zkApp method, the tests will fail and throw an error if the "circuit" is not provable. If nothing happens, it means the circuit is provable.
+
+- When running integration tests, you can choose whether to generate proofs:
+
+  - To generate proofs when sending a transaction to the local blockchain:
+
+    ```ts
+    let proofsEnabled = true;
+    if (proofsEnabled) await MastermindZkApp.compile();
+
+    // Set up the Mina local blockchain
+    const Local = await Mina.LocalBlockchain({ proofsEnabled });
+    Mina.setActiveInstance(Local);
+    ```
+
+- Note that when `proofsEnabled = true`, test execution will be slower since proof generation takes time.
+
+  - This provides a more realistic simulation of how transactions work on the Mina blockchain.
+
+  - You don’t need to generate proofs for every test run; enable it occasionally for deeper checks, but keep it disabled for faster test execution.
 
 ### Provability
 
-- In tests you can see some provable function like `combineDigits` be used as normal TS function with flexibility to convert to TS types like `bigint` etc.
-- That said, provable code outside a provable enivornment(`zkApp` or `zkProgram`) is normal TS code
-- This is valid for Provable to non-provable environment, in our case testing, but not the other way around
-- It's only possible to migrate non-provable code to inside Provable environment(`zkApp` or `zkProgram`) by using the `Provable.witness()` API **and** constrainig the operation correcting as seen in [give link]()
+- In tests, you may notice that certain provable functions, like `combineDigits`, can be used as regular TypeScript functions, or some field states converted to JS/TS types such as `bigint`.
 
-### Digit checks [TORemove]
+- However, it's important to note that provable code outside a provable environment (e.g., `zkApp` or `zkProgram`) behaves like standard TypeScript code.
 
-- Note that since the combination is asserted to be a four-digit number
-  - there is no need to check that each digit is a single 0 to 9 digit as in other bit-serialization techniques eg. {@link serializeClue }
-  - there is no need to check that the first digit is 0 as it render the combination to be a 3-digit field
+- This conversion is valid when moving from a provable to a non-provable environment, such as during testing, but not the other way around.
 
-### Advanced: Benchmarking circuits [TODO]
+- To migrate non-provable code into a provable environment (`zkApp` or `zkProgram`), you must use the `Provable.witness()` API **and** properly constrain the operation, as detailed in the [documentation](#provablewitness).
 
-- zkApp `anazlyzeMethods`
-- `Provable.constraintSystem`
+- **Validating Provable Code:**
 
-## API explanation [TODO]
+  - To ensure that your provable code is indeed valid within a provable environment, you can run integration tests as setting up a Mina blockchain instance and executing your zkApp methods inherently validates their provability.
 
-### Provable.witness
+  - However, if you need to validate smaller components separately, the `constraintSystem` API can be utilized to check provability and view the specific rows/constraints for your code using the o1js API.
+  - For more details, refer to the [constraintSystem documentation](#provableconstraintsystem).
 
-- how it works
-- when it should be used
-- security and constraint
+# API explanation
 
-### Provable.Array
+## Benchmarking
 
-- what does it serve;
-- When it's used
+In the Kimchi proof system, the circuit size is constrained by a limit of `2^16` or `65,536` rows.
 
-### Provable.if
+Understanding the number of rows for each of your method circuits (i.e., the number of constraints in the underlying proof system) is crucial, as it serves as a good indicator of circuit size and the time required to generate proofs.
 
-- how does it work
-- an alternative
+Additionally, the following APIs can be used as quick checks to ensure that your contract compiles without errors, significantly speeding up the iteration process.
 
-### Field vs {UInt8, UInt32, UInt64}
+### analyzeMethods
 
-- The `UInt8` provable type is used for this state, which optimizes the storage size and allows a value range from `0` to `255`.
+- Both `zkApp` and `zkProgram` have a method called `analyzeMethods` that returns an object, keyed by method name, with each entry containing:
 
-- There are certain methods specific to the provable `UInt` types that calls the need to use these types but if they are only used to inherit for Field, then just use Field
+  - **rows:** the size of the constraint system created by this method.
+  - **digest:** a digest of the method circuit.
+  - **actions:** the number of actions the method dispatches.
+  - **gates:** the constraint system, represented as an array of gates.
 
-- `UInt` provable type use custom gates underhood that are more efficient when it comes to range checks
+- For example, you can check the `MastermindZkApp` method summaries as follows:
 
-## Notes [TODO]
+  ```ts
+  import { MastermindZkApp } from './Mastermind.js';
+  console.log(await MastermindZkApp.analyzeMethods());
+  ```
 
-- Mention why this game is not operational
+### Provable.constraintSystem
+
+- You can effectively verify whether your provable code compiles without errors and streamline the development process by analyzing smaller functions or components within your zkApp/zkProgram.
+
+- The `Provable.constraintSystem` function, although similar to `analyzeMethods`, is specifically designed for benchmarking the logic within an individual callback. This enables you to profile and understand the constraints of specific components in your zkApp/zkProgram.
+
+- It generates a circuit summary akin to analyzeMethods, but it specifically targets the execution of the provable callback and provides a detailed summary of its constraints.
+
+- Here’s a code snippet demonstrating its usage:
+
+  ```ts
+  let boundCS = await Provable.constraintSystem(() => {
+    const anyField = Provable.witness(Field, () => Field(1001));
+
+    const lowerBound = anyField.greaterThanOrEqual(1000);
+    const upperBound = anyField.lessThanOrEqual(9999);
+    lowerBound.and(upperBound).assertTrue();
+  });
+
+  console.log(boundCS);
+  ```
+
+  - The callback in `Provable.constraintSystem` simulates a circuit within the proof system environment. It's critical to use the `Provable.witness` API to define circuit inputs for this quick-to-run provable code.
+
+  - When witnessing an input, as in `const anyField = Provable.witness(Field, () => Field(1001));`, the value serves as a placeholder for a circuit input argument. The actual value is not relevant to the benchmarks but is necessary to establish the circuit inputs.
+
+  - If no input is witnessed with `Provable.witness`, the summary will display 0 constraints, leading to meaningless benchmarks.
+
+## Provable.witness
+
+Based on the API JSDoc documentation:
+
+> Create a new witness. A witness, or variable, is a value provided as input by the prover. This offers a flexible way to introduce values from outside into the circuit. However, note that nothing about how the value was created is part of the proof—`Provable.witness` behaves exactly like user input. So, ensure that after receiving the witness, you make any necessary assertions associated with it.
+
+### When to Use
+
+- `Provable.witness` is an API similar to the single arrow `<--` in Circom.
+
+- `Provable.witness` follows the pattern: `compute, then constrain`.
+
+- Some operations are extremely difficult to model with pure constraints alone. In these cases, it may be necessary to shift an expensive or complicated computation outside the circuit and prove the integrity of that computation by adding adequate constraints.
+
+- In summary, `Provable.witness` is useful for optimizing circuit constraints or working around complex operations that are challenging to model when writing a circuit.
+
+### Security Warning
+
+- `Provable.witness` can be a potential pitfall and lead to underconstraints.
+
+- Underconstraints are a significant source of security bugs in zero-knowledge applications, so triple-check that the constraints are generated as expected!
+
+### How to Use
+
+- `Provable.witness` is used by defining the type of the output and a callback that allows non-provable code and returns the same type defined earlier.
+
+  - Note that if you want to witness an array of provable elements, you need to use the `Provable.Array` API.
+
+  - For example:
+
+    ```ts
+    // Witness the individual digits of the combination
+    const digits = Provable.witness(Provable.Array(Field, 4), () => {
+      const num = combination.toBigInt();
+      return [num / 1000n, (num / 100n) % 10n, (num / 10n) % 10n, num % 10n];
+    });
+
+    // Assert the correctness of the witnessed digit separation
+    compressCombinationDigits(digits).assertEquals(combination);
+    ```
+
+  - Note that the type is inferred from the type entry, and there was no need to use `.map(Field)`.
+
+- `Provable.witness` behaves like user input but can only return deterministic circuit values. In other words, it cannot replace a circuit input, as this input is only known when a user provides it.
+
+  - For example:
+
+    ```ts
+    const myField = Provable.witness(Field, () => Field(10));
+    ```
+
+  - The snippet above is somewhat redundant because you could directly use `const myField = Field(10);`, but it becomes useful within the `Provable.constraintSystem` API, where it simulates a circuit input to generate a circuit summary or benchmarks for provable code.
+
+  - Generally, `Provable.witness` is most useful when proving statements about another circuit variable for better efficiency and flexibility.
+
+  - For example, division is expensive when operating on field elements, so a workaround is:
+
+    ```ts
+    @method async divideBy19(input: Field) {
+      const result = Provable.witness(Field, () => {
+        return input.toBigInt() / 19n;
+      });
+
+      // This constraint asserts that `input` is divisible by 19
+      // and that `result` is correctly computed from `input`
+      result.mul(19).assertEquals(input);
+    }
+    ```
+
+  - The code snippet above, for example, costs only `1` constraint, whereas a similar computation with a division API would cost `10`.
+
+## Provable.if
+
+- `Provable.if` functions similarly to the ternary operator in JavaScript, allowing you to choose between two values based on a `Bool` condition.
+
+- In the example below, `Provable.if` selects `Field(10)` if the `Bool` condition is `true`, and `Field(15)` if it's `false`:
+
+  ```ts
+  const selector = Bool(true);
+  const selected = Provable.if(selector, Field(10), Field(15));
+  ```
+
+- The arms of `Provable.if` can be any value or function that returns a value.
+
+- Unlike JavaScript's conditional statements, `Provable.if` does not bypass the execution of one branch based on the condition. Due to the deterministic nature of zk-SNARK circuits, `Provable.if` evaluates both branches but only returns the value corresponding to the `Bool` condition.
+
+- **Caution:** Since both branches are always executed, if either branch contains code that throws an error, `Provable.if` will trigger that error. This behavior contrasts with traditional JavaScript control flow, where only the executed branch of an `if/else` statement is evaluated.
+
+For more details, refer to the [Control Flow](https://docs.minaprotocol.com/zkapps/tutorials/common-types-and-functions#control-flow) section in the o1js documentation.
+
+## Field vs { UInt8, UInt32, UInt64 }
+
+- The `UInt` types impose size constraints on fields.
+
+  - For example, the `UInt8` provable type restricts the field size to a single byte, allowing values in the range of `0` to `255`.
+  - Any value assigned to `UInt8` that falls outside this range will trigger an error, ensuring that only valid values are used.
+  - You can convert a `UInt` type back to a `Field` provable type:
+    ```ts
+    const byte = UInt8.from(12);
+    const byteField = byte.value;
+    ```
+  - Converting a `Field` to a `UInt8` is possible but can be unsafe if the value exceeds the `UInt8` range, leading to overflow:
+    ```ts
+    const smallField = Field(12);
+    const byte = UInt8.Unsafe.fromField(smallField);
+    ```
+
+- `UInt` provable types come with specialized methods, such as `divMod`, which facilitate various operations. These methods are specifically tailored for the `UInt` types, making them essential in cases where precise, bounded operations are required.
+
+- Under the hood, `UInt` types utilize custom gates that are more efficient for range checks.
+
+  - `UInt` types not only limit the field size but also offer optimized constraint handling for operations on small-sized fields.
+  - For instance, in the [constraintSystem example](#provableconstraintsystem), a range check on a `Field` type consumes only `56` rows, while performing a similar operation on a `UInt32` would cost only `10` rows.
+
+  ```ts
+  let bench32 = await Provable.constraintSystem(() => {
+    const anyUInt32 = Provable.witness(UInt32, () => UInt32.from(1001));
+    const lowerBound = anyUInt32.greaterThanOrEqual(UInt32.from(1000));
+    const upperBound = anyUInt32.lessThanOrEqual(UInt32.from(9999));
+    lowerBound.and(upperBound).assertTrue();
+  });
+
+  console.log('bound 32:', bench32);
+  ```
+
+---
+
+For more details refer to the [o1js documentation](https://docs.minaprotocol.com/zkapps/o1js)
+
+# How to build & test
 
 ## How to build
 
