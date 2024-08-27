@@ -4,17 +4,18 @@
 
 # Table of Contents
 
+- This README is divided into two main sections: **Mastermind Game Documentation** and **General zkApp Documentation**.
+
+  - **The Mastermind Game Documentation** is focused on the specific implementation of the Mastermind game as a zkApp example. This section details the game rules, the structure of the zkApp tailored for Mastermind, and the methods specific to this game.
+
+  - **The General zkApp Documentation** provides broader information about zkApps, including their structure, security considerations, best practices, and relevant APIs. This section is applicable to any zkApp you might develop, not just the Mastermind game.
+
+## Mastermind Game Documentation
+
 - [Understanding the Mastermind Game](#understanding-the-mastermind-game)
 
   - [Overview](#overview)
   - [Game Rules](#game-rules)
-
-- [Mina zkApp Structure](#mina-zkapp-strucuture)
-
-  - [Introduction](#introduction)
-  - [zkApp Components](#zkapp-components)
-    - [State](#states)
-    - [Methods](#methods)
 
 - [Mastermind zkApp Structure](#mastermind-zkapp-structure)
 
@@ -32,6 +33,15 @@
     - [makeGuess](#makeguess)
     - [giveClue](#giveclue)
 
+## General zkApp Documentation
+
+- [Mina zkApp Structure](#mina-zkapp-strucuture)
+
+  - [Introduction](#introduction)
+  - [zkApp Components](#zkapp-components)
+    - [States](#states)
+    - [Methods](#methods)
+
 - [Security Considerations](#security-considerations)
 
   - [Controlling Method Invocation Patterns](#controlling-method-invocation-patterns)
@@ -42,14 +52,23 @@
 
 - [Good Practices](#good-practices)
 
-  - [Structure of the Project](#structure-of-the-project)
+  - [Project Structure](#project-structure)
   - [Unit and Integration Tests](#unit-and-integration-tests)
 
-- [API Exaplanation](#api-explanation)
+- [API Explanation](#api-explanation)
+
   - [Benchmarking](#benchmarking)
+    - [analyzeMethods](#analyzemethods)
+    - [Provable.constraintSystem](#provableconstraintsystem)
   - [Provable.witness](#provablewitness)
   - [Provable.if](#provableif)
   - [Field vs { UInt8, UInt32, UInt64 }](#field-vs--uint8-uint32-uint64-)
+
+- [How to Build & Test](#how-to-build--test)
+  - [How to build](#how-to-build)
+  - [How to run tests](#how-to-run-tests)
+  - [How to run coverage](#how-to-run-coverage)
+- [License](#license)
 
 # Understanding the Mastermind Game
 
@@ -80,78 +99,6 @@
 
 - The game continues with alternating guesses and clues until the Code Breaker achieves 4 hits and uncovers the secret combination or fails to do so within the **maximum allowed attempts**.
 
-# Mina zkApp Structure
-
-## Introduction
-
-- By the definition of a smart contract:
-
-  > Smart contracts are digital contracts stored on a blockchain that are automatically executed when predetermined terms and conditions are met.
-
-- zkApps are essentially smart contracts on the Mina blockchain that are executed when certain `preconditions` are met and can trigger updates to their on-chain state through zero-knowledge proofs.
-
-- Specifically, a zkApp is an account on the Mina blockchain with a verification key and 8 storage states that can be updated following the successful verification of zero-knowledge proofs. These proofs dictate the logic for how these states are updated.
-
-## zkApp components
-
-As demonstrated in the [Mastermind zkApp](./src/Mastermind.ts), a zkApp primarily consists of a set of states (up to 8) and methods.
-
-### States
-
-- These are the 8 states associated with the zkApp account, stored on-chain.
-
-- All zkApp states are **public**.
-
-- A state creates a precondition that is checked when the proof is sent in a transaction to the blockchain to be verified.
-
-- Each state occupies approxiamtely 256 bits in size.
-
-- You can use other provable types like `Bool`, `UInt8`, etc., but even if they appear smaller in size, they still occupy a full 256-bit field element.
-
-- Keep in mind that some structs take up more than one Field.
-
-  - For example, a `PublicKey` occupies two of the eight fields.
-
-- A state is defined as follows:
-  ```ts
-  @state(Field) myState = State<Field>();
-  ```
-
----
-
-- **Note**: While the 8 on-chain states may be insufficient for some applications, there are workarounds using various techniques and APIs, which will be demonstrated in the upcoming advanced Mastermind Levels.
-
-### Methods
-
-- Interaction with a zkApp occurs through calling one or more of its methods.
-
-- A method call **always** generates a proof that must be verified on-chain.
-
-- A method can read on-chain data before generating a proof but can only trigger updates (write) after the transaction proof is successfully verified.
-
-- All method parameters are **private**, and you can include any number of parameters you need.
-
-- If we think of a method as a circuit:
-
-  - The circuit's private inputs are the method parameters.
-  - The circuit's public inputs are the on-chain states.
-    - As in any ZK circuit, the private inputs commit to the public inputs.
-    - The zkApp's on-chain state is fetched before the proof is generated.
-    - The method call also sets preconditions on the on-chain state:
-      - A precondition ensures that a specific condition (equality, greater than, less than, etc.) at the time the state was read for proof generation is still satisfied when the proof is verified on-chain.
-      - This guarantees correct execution and prevents data races during state updates.
-
-- Within a method, you can use o1js data types and primitives to define your custom logic.
-
-  - For more details, refer to this guide on [methods](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/smart-contracts#methods).
-
-- A method call does **not** just submit a proof for verification but can also read data from the blockchain and perform actions like updating on-chain states, emitting events, and dispatching actions.
-
-- You can declare methods using the `@method` decorator as follows:
-  ```ts
-  @method async myMethod(secret: Field) {...}
-  ```
-
 # Mastermind zkApp Structure
 
 Following the game rules, the [MastermindZkApp](./src/Mastermind.ts) should be deployed:
@@ -160,13 +107,13 @@ Following the game rules, the [MastermindZkApp](./src/Mastermind.ts) should be d
 
 - After initialization, the Code Master calls the `createGame` method to start the game and set a secret combination for the Code Breaker to solve.
 
-- The Code Breaker then makes a guess by calling the `makeGuess` method with a valid combination as a parameter.
+- The Code Breaker then makes a guess by calling the `makeGuess` method with a valid combination as an argument.
 
 - The Code Master submits the solution again to be checked against the previous guess and provides a clue.
 
 - The Code Breaker should analyze the given clue and make another meaningful guess.
 
-- The game continues by alternating between `makeGuess` and `giveClue` until the Code Breaker either uncovers the secret combination or fails by exceeding the allowed `maxAttempts`, concluding the game.
+- The game continues by alternating between `makeGuess` and `giveClue` methods until the Code Breaker either uncovers the secret combination or fails by exceeding the allowed `maxAttempts`, concluding the game.
 
 Now, let's dive deeper into the states and methods of our Mastermind zkApp.
 
@@ -190,7 +137,7 @@ Let's break down the purpose of each state and discuss the small workarounds use
 
 - These states represent the unique identifiers of the players, which are stored as the **hash** of their `PublicKey`.
 
-- We avoid storing the `PublicKey` directly because it occupies two fields. By hashing the `PublicKey`, we save two storage states, reducing the required states from four to two.
+- We avoid storing the `PublicKey` directly because it occupies two fields. By hashing the `PublicKey`, we save two storage states, reducing the total required states from four to two.
 
 - Player identifiers are crucial for correctly associating each method call with the appropriate player, such as linking `makeGuess` to the Code Breaker and `giveClue` to the Code Master.
 
@@ -288,21 +235,29 @@ There are three variations for initializing a zkApp:
 
 - In variations `1` and `2`, the `init()` method, whether default or overridden, is automatically executed when the zkApp is deployed. In contrast, the custom init method in the third variation must be called manually to initialize the states.
 
-- Since the custom initialization method can be called by anyone at any time, refer to [Security Considerations] to ensure it is implemented securely.
+- Since the custom initialization method can be called by anyone at any time, refer to the [Security Considerations](#initialize-must-be-called-first-and-only-once) to ensure it is implemented securely.
+
+---
 
 ### createGame
 
 - This method should be called **after** initializing the game and **only once**.
 - The method executes successfully when the following conditions are met:
+
   - The code master provides two arguments: `unseparatedSecretCombination` and a `salt`.
+
   - The `unseparatedSecretCombination` is split into an array of fields representing the four digits. An error is thrown if the number is not in the range of `1000` to `9000`.
+
   - The separated digits are validated to ensure they are unique and non-zero, with errors thrown if they do not meet these criteria.
+
   - The secret combination is then hashed with the salt and stored on-chain as `solutionHash`.
+
   - The caller's `PublicKey` is hashed and stored on-chain as `codemasterId` once the combination is validated.
+
   - Finally, the `turnCount` is incremented, signaling that the game is ready for the code breaker to `makeGuess`.
   - The first user to call this method with valid inputs will be designated as the code master.
 
-**Note:** Security checks in this method are abstracted for simplicity. Please refer to [Security Considerations] for more details.
+**Note:** For simplicity, security checks in this method have been abstracted. For more details, please refer to the [Security Considerations](#safeguarding-private-inputs-in-zk-snark-circuits).
 
 ---
 
@@ -319,11 +274,13 @@ There are three variations for initializing a zkApp:
 - Special handling is required when the method is called for the first time:
 
   - The first player to call the method and make a guess will be registered as the code breaker for the remainder of the game.
-  - The `Provable.if` API is used to either set the current caller's `PublicKey` hash or fetch the registered code breaker ID.
+  - The [Provable.if API](#provableif) is used to either set the current caller's `PublicKey` hash or fetch the registered code breaker ID.
 
 - Once the `makeGuess` method is called successfully for the first time and a code breaker ID is registered, the method will restrict any caller except the registered one.
 
 - After all the preceding checks pass, the code breaker's guess combination is validated, stored on-chain, and the `turnCount` is incremented. This then awaits the code master to read the guess and provide a clue.
+
+---
 
 ### giveClue
 
@@ -339,10 +296,96 @@ There are three variations for initializing a zkApp:
 - Next, the guess from the previous turn is fetched, separated, and compared against the secret combination digits to provide a clue:
 
   - If the clue results in 4 hits (e.g., `2 2 2 2`), the game is marked as solved, and the `isSolved` state is set to `Bool(true)`.
-  - The clue is then serialized into 4 2-bit Fields, packed as an 8-bit field in decimal, and stored on-chain.
+  - The clue is then serialized into `4` 2-bit Fields, packed as an 8-bit field in decimal, and stored on-chain.
   - Note that this technique requires the adversary to deserialize and correctly interpret the digits before making the next guess.
 
 - Finally, the `turnCount` is incremented, making it odd and awaiting the code breaker to deserialize and read the clue before making a meaningful guess—assuming the game is not already solved or has not reached the maximum number of attempts.
+
+---
+
+# Mina zkApp Structure
+
+## Introduction
+
+- By the definition of a smart contract:
+
+  > Smart contracts are digital contracts stored on a blockchain that are automatically executed when predetermined terms and conditions are met.
+
+- zkApps are essentially smart contracts on the Mina blockchain that are executed when certain `preconditions` are met and can trigger updates to their on-chain state through zero-knowledge proofs.
+
+- Specifically, a zkApp is an account on the Mina blockchain with a verification key and 8 storage states that can be updated following the successful verification of zero-knowledge proofs. These proofs dictate the logic for how these states are updated.
+
+## zkApp components
+
+As demonstrated in the [Mastermind zkApp](./src/Mastermind.ts), a zkApp primarily consists of a set of states (up to 8) and methods.
+
+### States
+
+- These are the 8 states associated with the zkApp account, stored on-chain.
+
+- All zkApp states are **public**.
+
+- A state creates a precondition that is checked when the proof is sent in a transaction to the blockchain to be verified.
+
+  - This process occurs under the hood when using the following API:
+    ```ts
+    const currentState = this.num.get();
+    this.num.requireEquals(currentState);
+    ```
+  - The first line of code retrieves the current state before the proof is generated.
+  - The second line creates a precondition that is verified when the proof is submitted in a transaction to the blockchain.
+  - This ensures that the transaction will fail if the value of the field has changed.
+
+- Each state occupies approxiamtely **256 bits** in size.
+
+- You can use other provable types like `Bool`, `UInt8`, etc., but even if they appear smaller in size, they still occupy a full 256-bit field element.
+
+- Keep in mind that a [struct](https://docs.minaprotocol.com/zkapps/tutorials/common-types-and-functions#struct) can take up more than one Field.
+
+  - For example, a `PublicKey` occupies two of the eight fields.
+
+- A state is defined as follows:
+  ```ts
+  @state(Field) myState = State<Field>();
+  ```
+
+---
+
+- **Note**: While the 8 on-chain states may be insufficient for some applications, there are workarounds using various techniques and APIs, which will be demonstrated in the upcoming advanced Mastermind Levels.
+
+### Methods
+
+- Interaction with a zkApp occurs through calling one or more of its methods.
+
+- A method call **always** generates a proof that must be verified on-chain.
+
+- A method can read on-chain data before generating a proof but can only trigger updates (write) after the transaction proof is successfully verified.
+
+- All method parameters are **private**, and you can include any number of parameters you need.
+
+- If we think of a method as a circuit:
+
+  - The circuit's private inputs are the method parameters.
+  - The circuit's public inputs are the on-chain states.
+    - As in any ZK circuit, the public inputs can be derived from or committed to by the private inputs. Additionally, state preconditions commit to the transaction proof, not necessarily to the private inputs of a method.
+    - The zkApp's on-chain states are fetched before the proof is generated.
+    - The method call also sets preconditions on the on-chain state:
+      - A precondition ensures that a specific condition (equality, greater than, less than, etc.) at the time the state was read for proof generation is still satisfied when the proof is verified on-chain.
+      - This guarantees correct execution and prevents race conditions during state updates.
+
+- Within a method, you can use o1js data types and primitives to define your custom logic.
+
+  - For more details, refer to this guide on [methods](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/smart-contracts#methods).
+
+- A method call does **not** just submit a proof for verification but can also read data from the blockchain and perform actions like updating on-chain states, emitting events, and dispatching actions.
+
+- You can declare methods using the `@method` decorator as follows:
+
+  ```ts
+  @method async myMethod(secret: Field) {...}
+  ```
+
+- A zkApp `init method` is quite an exception, for a comprehensive guide on initializing a zkApp, refer to the [Mastermind initGame documentation](#initgame).
 
 # Security Considerations
 
@@ -358,9 +401,11 @@ Key security considerations include:
 
 ### Initialize: Must Be Called First and Only Once
 
-- For the `initGame` method, it's essential to ensure that this method is called immediately after deployment, with no other methods executed beforehand.
+- For the [initGame method](#initgame), it's essential to ensure that this method is called immediately after deployment, with no other methods executed beforehand.
 
-- Additionally, we must enforce that this method is called **only once**. If the game is in progress and someone calls the method to reset the game, it could be catastrophic.
+- Additionally, we must enforce that this method is called **only once**.
+
+  - If the game is in progress and someone calls the method to reset the game, it could be catastrophic.
 
 - To restrict the sequence and frequency of calling this method, we use the following API:
 
@@ -379,7 +424,7 @@ For the `createGame` method, we need to ensure that a player can call this metho
 
 - To enforce this restriction, we use an on-chain variable called `turnCount`.
   - `turnCount` is initialized to `0`, and in other methods, every player action increments this count.
-  - Therefore, we assert that `turnCount` is zero to confirm that no other method was called before `createGame`.
+  - Therefore, we assert that `turnCount` is `zero` to confirm that no other method was called before `createGame`.
   ```ts
   turnCount.assertEquals(0, 'A mastermind game is already created!');
   ```
@@ -390,7 +435,7 @@ For the `createGame` method, we need to ensure that a player can call this metho
 
 In the case of our Mastermind zkApp, it's essential to limit method access to the code master and the code breaker. Otherwise, anyone could access the zkApp and disrupt the game flow.
 
-Generally, as seen in the [codemasterId & codebreakerId states](###codemasterId-&-codebreakerId), the check involves storing the method caller ID, typically by hashing their `PublicKey`, and asserting that the caller is authorized to execute the method.
+Generally, as seen in the [codemasterId & codebreakerId states](#codemasterid--codebreakerid), the check involves storing the method caller ID, typically by hashing their `PublicKey`, and asserting that the caller is authorized to execute the method.
 
 For example:
 
@@ -409,9 +454,11 @@ this.codemasterId
   );
 ```
 
-**Note:** This logic works well in the game since it doesn't require much state. However, if we need to authorize a large number of users, it could become problematic due to the limited 8 states of storage available.
+**Notes:**
 
-To learn more about scaling data storage, including off-chain storage, actions/reducers, or other packing techniques, follow the next levels of this game and explore the relevant APIs in the o1js library.
+- This logic works well in the game since it doesn't require much state. However, if we need to authorize a large number of users, it could become problematic due to the limited `8` states of storage available.
+
+- To learn more about scaling data storage, including off-chain storage, actions/reducers, or other packing techniques, follow the next levels of this game and explore the relevant APIs in the o1js library.
 
 ## Rigorous Input Validation and State Verification
 
@@ -452,21 +499,21 @@ maxAttempts.assertLessThanOrEqual(
 ## Preventing Underconstrained Proofs
 
 - Prevent vulnerabilities by ensuring that all provable code within the zk-SNARK circuit is fully constrained. This avoids the creation of underconstrained proofs, which could otherwise lead to security breaches or unintended behavior.
-  It's crucial to properly constrain the provable code by using assertions.
+- It's crucial to properly constrain the provable code by using assertions.
 
-- For example, the API `Field.equals(2)` is not the same as `Field.assertEquals(2)`. The former returns a `Bool`, while the latter adds a constraint on the equality and will cause proof generation and verification to fail if the equality check fails.
-- The same applies to other comparisons and checks, such as `greaterThan`, `lessThan`, etc.
+  - For example, the API `Field.equals(2)` is not the same as `Field.assertEquals(2)`. The former returns a `Bool`, while the latter adds a constraint on the equality and will cause proof generation and verification to fail if the equality check fails.
+  - The same applies to other comparisons and checks, such as `greaterThan`, `lessThan`, etc.
 
 - Be cautious when using the `Provable.witness` API. Ensure that its output is consistently constrained, operating based on another field or variable.
   - Please refer to the API documentation [here](#provablewitness) for more details.
 
 ---
 
-> Note that the security considerations documented here are specific to the Mastermind game. For more details on general security considerations, please refer to this excellent guide on [Security and zkApps](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/secure-zkapps).
+> Note that the security considerations documented here are specific to the Mastermind game. For more details on zkApp security considerations, please refer to this excellent guide on [Security and zkApps](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/secure-zkapps).
 
 # Good practices
 
-## Structure of the Project
+## Project Structure
 
 - Unlike other zkDSLs, the `o1js` SDK handles both circuit writing for the zkApp as well as interacting with the blockchain, whether for deployment or interaction.
 
@@ -560,7 +607,7 @@ src/
   - However, if you need to validate smaller components separately, the `constraintSystem` API can be utilized to check provability and view the specific rows/constraints for your code using the o1js API.
   - For more details, refer to the [constraintSystem documentation](#provableconstraintsystem).
 
-# API explanation
+# API Explanation
 
 ## Benchmarking
 
@@ -612,7 +659,7 @@ Additionally, the following APIs can be used as quick checks to ensure that your
 
   - When witnessing an input, as in `const anyField = Provable.witness(Field, () => Field(1001));`, the value serves as a placeholder for a circuit input argument. The actual value is not relevant to the benchmarks but is necessary to establish the circuit inputs.
 
-  - If no input is witnessed with `Provable.witness`, the summary will display 0 constraints, leading to meaningless benchmarks.
+  - If no input is witnessed with `Provable.witness`, the summary will display `0` constraints, leading to meaningless benchmarks.
 
 ## Provable.witness
 
@@ -687,7 +734,7 @@ Based on the API JSDoc documentation:
 
 ## Provable.if
 
-- `Provable.if` functions similarly to the ternary operator in JavaScript, allowing you to choose between two values based on a `Bool` condition.
+- `Provable.if` functions similarly to the ternary operator in JavaScript, allowing you to choose between two values based on a `Boolean` condition.
 
 - In the example below, `Provable.if` selects `Field(10)` if the `Bool` condition is `true`, and `Field(15)` if it's `false`:
 
@@ -723,7 +770,7 @@ For more details, refer to the [Control Flow](https://docs.minaprotocol.com/zkap
 
 - `UInt` provable types come with specialized methods, such as `divMod`, which facilitate various operations. These methods are specifically tailored for the `UInt` types, making them essential in cases where precise, bounded operations are required.
 
-- Under the hood, `UInt` types utilize custom gates that are more efficient for range checks.
+- Under the hood, `UInt` types utilize custom gates that are **more efficient for range checks**.
 
   - `UInt` types not only limit the field size but also offer optimized constraint handling for operations on small-sized fields.
   - For instance, in the [constraintSystem example](#provableconstraintsystem), a range check on a `Field` type consumes only `56` rows, while performing a similar operation on a `UInt32` would cost only `10` rows.
@@ -743,7 +790,7 @@ For more details, refer to the [Control Flow](https://docs.minaprotocol.com/zkap
 
 For more details refer to the [o1js documentation](https://docs.minaprotocol.com/zkapps/o1js)
 
-# How to build & test
+# How to Build & Test
 
 ## How to build
 
@@ -764,6 +811,6 @@ npm run testw # watch mode
 npm run coverage
 ```
 
-## License
+# License
 
 [Apache-2.0](LICENSE)
