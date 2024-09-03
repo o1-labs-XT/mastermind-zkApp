@@ -54,6 +54,7 @@
 
   - [Project Structure](#project-structure)
   - [Unit and Integration Tests](#unit-and-integration-tests)
+  - [Provability](#provability)
 
 - [API Explanation](#api-explanation)
 
@@ -149,7 +150,7 @@ Let's break down the purpose of each state and discuss the small workarounds use
 
 - To maintain the integrity of the solution, the solution is hashed and stored on-chain when the game is first created.
 
-- Each time the Code Master calls the `giveClue` method, the entered private secret combination is hashed and compared against the `solutionHash` stored on-chain to verify its integrity.
+- Each time the Code Master calls the `giveClue` method, the entered private secret combination is salted, hashed, and compared against the `solutionHash` stored on-chain. This process ensures the integrity of the combination and helps prevent side-channel attacks.
 
 - **Note:** Unlike player IDs, where hashing is used for data compression, here it is used to preserve the privacy of the on-chain state and to ensure the integrity of the values entered privately with each method call.
 
@@ -267,9 +268,9 @@ There are three variations for initializing a zkApp:
 
 - There are a few restrictions on calling this method to maintain a consistent progression of the game:
 
-  - If the game `isSolved`, then no one is able to call this method.
-  - If the code breaker exceeds the `maxAttempts`, this method is blocked and cannot be called.
-  - This method also enforces the correct sequence of players' interactions by only allowing the code breaker to make a guess if the `turnCount` state is odd.
+  - If the game `isSolved`, the method can be called, but it will throw an error.
+  - If the code breaker exceeds the `maxAttempts`, the method can be called, but it will throw an error.
+  - This method also enforces the correct sequence of player interactions by only allowing the code breaker to make a guess if the `turnCount` state is `odd`. If any of these conditions are not met, the method can be called, but it will throw an error.
 
 - Special handling is required when the method is called for the first time:
 
@@ -311,7 +312,7 @@ There are three variations for initializing a zkApp:
 
   > Smart contracts are digital contracts stored on a blockchain that are automatically executed when predetermined terms and conditions are met.
 
-- zkApps are essentially smart contracts on the Mina blockchain that are executed when certain `preconditions` are met and can trigger updates to their on-chain state through zero-knowledge proofs.
+- zkApps are essentially smart contracts on the Mina blockchain that can undergo updates to their on-chain state through zero-knowledge proofs when certain `preconditions` are met.
 
 - Specifically, a zkApp is an account on the Mina blockchain with a verification key and 8 storage states that can be updated following the successful verification of zero-knowledge proofs. These proofs dictate the logic for how these states are updated.
 
@@ -336,7 +337,7 @@ As demonstrated in the [Mastermind zkApp](./src/Mastermind.ts), a zkApp primaril
   - The second line creates a precondition that is verified when the proof is submitted in a transaction to the blockchain.
   - This ensures that the transaction will fail if the value of the field has changed.
 
-- Each state occupies approxiamtely **256 bits** in size.
+- Each state occupies **255 bits** in size.
 
 - You can use other provable types like `Bool`, `UInt8`, etc., but even if they appear smaller in size, they still occupy a full 256-bit field element.
 
@@ -565,7 +566,7 @@ src/
 
 - For more details, refer to the documentation on [Testing zkApps Locally](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/testing-zkapps-locally).
 
-#### Notes
+### Notes
 
 - Integration tests not only evaluate the behavior and interactions of a zkApp but also validate that the provable code is consistent.
 
@@ -590,7 +591,7 @@ src/
 
   - You don’t need to generate proofs for every test run; enable it occasionally for deeper checks, but keep it disabled for faster test execution.
 
-### Provability
+## Provability
 
 - In tests, you may notice that certain provable functions, like `combineDigits`, can be used as regular TypeScript functions, or some field states converted to JS/TS types such as `bigint`.
 
