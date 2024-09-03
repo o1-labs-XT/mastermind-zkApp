@@ -87,15 +87,32 @@ function validateCombination(combinationDigits: Field[]) {
   }
 }
 
-function serializeClue(clue: Field[]) {
+/**
+ * Serializes an array of Field elements representing a clue into a single Field
+ * Each clue element is converted to 2 bits and then combined into a single dField.
+ *
+ * @param clue - An array of 4 Field elements, each representing a part of the clue.
+ * @returns - A single Field representing the serialized clue.
+ */
+function serializeClue(clue: Field[]): Field {
   const clueBits = clue.map((f) => f.toBits(2)).flat();
   const serializedClue = Field.fromBits(clueBits);
 
   return serializedClue;
 }
 
-function deserializeClue(serialziedClue: Field): Field[] {
-  const bits = serialziedClue.toBits(8);
+/**
+ * Deserializes a Field into an array of Field elements, each representing a part of the clue.
+ * The serialized clue is split into 2-bit segments to retrieve the original clue elements.
+ *
+ * @note This function is not used within a zkApp itself but is utilized for reading and deserializing
+ * on-chain stored data, as well as verifying integrity during integration tests.
+ *
+ * @param serializedClue - A Field representing the serialized clue.
+ * @returns - An array of 4 Field elements representing the deserialized clue.
+ */
+function deserializeClue(serializedClue: Field): Field[] {
+  const bits = serializedClue.toBits(8);
   const clueA = Field.fromBits(bits.slice(0, 2));
   const clueB = Field.fromBits(bits.slice(2, 4));
   const clueC = Field.fromBits(bits.slice(4, 6));
@@ -147,22 +164,3 @@ function checkIfSolved(clue: Field[]) {
 
   return isSolved;
 }
-
-// function serializeCombination(combination: number[]) {
-//   const combinationBits = combination.map((x) => Field(x).toBits(4));
-//   const serializedCombination = Field.fromBits(combinationBits.flat());
-
-//   return serializedCombination;
-// }
-
-// function deserializeCombination(
-//   serializedCombination: Field
-// ): Field[] {
-//   const bits = serializedCombination.toBits(16);
-//   const combA = Field.fromBits(bits.slice(0, 4));
-//   const combB = Field.fromBits(bits.slice(4, 8));
-//   const combC = Field.fromBits(bits.slice(8, 12));
-//   const combD = Field.fromBits(bits.slice(12, 16));
-
-//   return [combA, combB, combC, combD];
-// }
