@@ -54,7 +54,7 @@ export class MastermindZkApp extends SmartContract {
 
     const turnCount = this.turnCount.getAndRequireEquals();
 
-    //! Restrict this method to be only called once at the beginnig of a game
+    //! Restrict this method to be only called once at the beginning of a game
     turnCount.assertEquals(0, 'A mastermind game is already created!');
 
     //! Separate combination digits and validate

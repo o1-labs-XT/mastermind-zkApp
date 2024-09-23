@@ -91,12 +91,19 @@
 
   Example:
 
-  - Code Master's secret combination: **1 2 3 4**
-  - Code Breaker's guess: **1 7 8 2**
+  |        | P1  | P2  | P3  | P4  |
+  | ------ | --- | --- | --- | --- |
+  | Secret | 5   | 9   | 3   | 4   |
+  | Guess  | 5   | 7   | 8   | 9   |
+  | Clue   | 2   | 0   | 0   | 1   |
+
+  - Code Master's secret combination: **5 9 3 4**
+  - Code Breaker's guess: **5 7 8 9**
   - Clue: **2 0 0 1**
     - Result: `1` hit and `1` blow.
-      - The hit is `1` in the first position.
-      - The blow is `2` in the fourth position.
+      - The hit is `5` in the first position.
+      - The blow is `9` in the fourth position.
+      -
 
 - The game continues with alternating guesses and clues until the Code Breaker achieves 4 hits and uncovers the secret combination or fails to do so within the **maximum allowed attempts**.
 
@@ -247,7 +254,7 @@ There are three variations for initializing a zkApp:
 
   - The code master provides two arguments: `unseparatedSecretCombination` and a `salt`.
 
-  - The `unseparatedSecretCombination` is split into an array of fields representing the four digits. An error is thrown if the number is not in the range of `1000` to `9000`.
+  - The `unseparatedSecretCombination` is split into an array of fields representing the four digits. An error is thrown if the number is not in the range of `1000` to `9999`.
 
   - The separated digits are validated to ensure they are unique and non-zero, with errors thrown if they do not meet these criteria.
 
@@ -339,7 +346,7 @@ As demonstrated in the [Mastermind zkApp](./src/Mastermind.ts), a zkApp primaril
 
 - Each state occupies **255 bits** in size.
 
-- You can use other provable types like `Bool`, `UInt8`, etc., but even if they appear smaller in size, they still occupy a full 256-bit field element.
+- You can use other provable types like `Bool`, `UInt8`, etc., but even if they appear smaller in size, they still occupy a full 255-bit field element.
 
 - Keep in mind that a [struct](https://docs.minaprotocol.com/zkapps/tutorials/common-types-and-functions#struct) can take up more than one Field.
 
@@ -493,7 +500,7 @@ maxAttempts.assertLessThanOrEqual(
 
   - Since the combination in a Mastermind game is a 4-digit number, it could inadvertently disclose information about the `solutionHash`, as state updates are publicly stored on the Mina blockchain and could be easily brute-forced.
 
-- To enhance security, a salt (random field) is introduced to the hash input: `hash(secret, salt)`. This adds approximately `256` bits of security, making it astronomically difficult to uncover the original input through brute force.
+- To enhance security, a salt (random field) is introduced to the hash input: `hash(secret, salt)`. This adds approximately `255` bits of security, making it astronomically difficult to uncover the original input through brute force.
 
 - However, while the use of salt increases security, it also adds complexity in debugging, as it becomes more difficult to trace errors related to the hash. The hash now varies with each change in the secret or the salt, making it harder to pinpoint the source of issues.
 
@@ -574,7 +581,7 @@ src/
 
 - When running integration tests, you can choose whether to generate proofs:
 
-  - To generate proofs when sending a transaction to the local blockchain:
+  - To generate proofs when sending a transaction to the [local blockchain](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/introduction-to-zkapps/testing-zkapps-locally#creating-a-simulated-local-blockchain):
 
     ```ts
     let proofsEnabled = true;
