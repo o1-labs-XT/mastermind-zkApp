@@ -15,7 +15,11 @@
 
 import { MastermindZkApp } from './Mastermind';
 import { Field, Mina, PrivateKey, PublicKey, AccountUpdate, UInt8 } from 'o1js';
-import { deserializeClue, compressCombinationDigits } from './utils';
+import {
+  deserializeClue,
+  compressCombinationDigits,
+  deserializeClueHistory,
+} from './utils';
 
 let proofsEnabled = false;
 
@@ -153,10 +157,10 @@ describe('Mastermind ZkApp Tests', () => {
       const solutionHash = zkapp.solutionHash.get();
       expect(solutionHash).toEqual(Field(0));
 
-      const unseparatedGuess = zkapp.unseparatedGuess.get();
+      const unseparatedGuess = zkapp.packedGuessHistory.get();
       expect(unseparatedGuess).toEqual(Field(0));
 
-      const serializedClue = zkapp.serializedClue.get();
+      const serializedClue = zkapp.packedClueHistory.get();
       expect(serializedClue).toEqual(Field(0));
 
       // Initialized manually
@@ -368,8 +372,12 @@ describe('Mastermind ZkApp Tests', () => {
         await giveClueTx.sign([codemasterKey]).send();
 
         // Test that the on-chain states are updated: serializedClue, isSolved, and turnCount
-        const serializedClue = zkapp.serializedClue.get();
+        const latestClueIndex = zkapp.turnCount.get().sub(3).div(2).toNumber();
+        const serializedClueHistory = zkapp.packedClueHistory.get();
+        const clueHistory = deserializeClueHistory(serializedClueHistory);
+        const serializedClue = clueHistory[latestClueIndex];
         const clue = deserializeClue(serializedClue);
+
         expect(clue).toEqual([2, 0, 0, 1].map(Field));
 
         const isSolved = zkapp.isSolved.get().toBoolean();
@@ -476,8 +484,12 @@ describe('Mastermind ZkApp Tests', () => {
         await giveClueTx.prove();
         await giveClueTx.sign([codemasterKey]).send();
 
-        const serializedClue = zkapp.serializedClue.get();
+        const latestClueIndex = zkapp.turnCount.get().sub(3).div(2).toNumber();
+        const serializedClueHistory = zkapp.packedClueHistory.get();
+        const clueHistory = deserializeClueHistory(serializedClueHistory);
+        const serializedClue = clueHistory[latestClueIndex];
         const clue = deserializeClue(serializedClue);
+
         expect(clue).toEqual(expectedClue.map(Field));
       }
 
@@ -585,8 +597,12 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     await giveClueTx.prove();
     await giveClueTx.sign([codemasterKey]).send();
 
-    const serializedClue = zkapp.serializedClue.get();
-    const clue = deserializeClue(serializedClue);
+    const latestClueIndex = zkapp.turnCount.get().sub(3).div(2).toNumber();
+    const serializedClueHistory = zkapp.packedClueHistory.get();
+    const clueHistory = deserializeClueHistory(serializedClueHistory);
+    const latestClueSerialized = clueHistory[latestClueIndex];
+    const clue = deserializeClue(latestClueSerialized);
+
     expect(clue).toEqual(expectedClue.map(Field));
   }
 

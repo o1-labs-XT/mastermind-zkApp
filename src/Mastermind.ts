@@ -16,17 +16,25 @@ import {
   serializeClue,
   getClueFromGuess,
   checkIfSolved,
+  deserializeCombinationHistory,
+  updateGuessHistory,
+  serializeCombinationHistory,
+  combinationAtIndex,
+  deserializeClueHistory,
+  serializeClueHistory,
 } from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
   @state(UInt8) maxAttempts = State<UInt8>();
   @state(UInt8) turnCount = State<UInt8>();
+  @state(Bool) isSolved = State<Bool>();
+
   @state(Field) codemasterId = State<Field>();
   @state(Field) codebreakerId = State<Field>();
+
   @state(Field) solutionHash = State<Field>();
-  @state(Field) unseparatedGuess = State<Field>();
-  @state(Field) serializedClue = State<Field>();
-  @state(Bool) isSolved = State<Bool>();
+  @state(Field) packedGuessHistory = State<Field>();
+  @state(Field) packedClueHistory = State<Field>();
 
   @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
@@ -82,7 +90,7 @@ export class MastermindZkApp extends SmartContract {
 
   //! Before calling this method the codebreaker should interpret
   //! the codemaster clue beforehand and make a guess
-  @method async makeGuess(unseparatedGuess: Field) {
+  @method async makeGuess(guess: Field) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertTrue('The game has not been initialized yet!');
 
@@ -132,11 +140,29 @@ export class MastermindZkApp extends SmartContract {
     );
 
     //! Separate and validate the guess combination
-    const guessDigits = separateCombinationDigits(unseparatedGuess);
+    const guessDigits = separateCombinationDigits(guess);
     validateCombination(guessDigits);
 
-    // Update the on-chain unseparated guess
-    this.unseparatedGuess.set(unseparatedGuess);
+    // Fetch the serialized guess history
+    const serializedGuessHistory =
+      this.packedGuessHistory.getAndRequireEquals();
+
+    // Deserialize the guess history into an array of combinations
+    const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
+
+    // Update the guess history with the new guess at the calculated index (based on turn count)
+    const updatedGuessHistory = updateGuessHistory(
+      guess,
+      guessHistory,
+      turnCount.sub(1).div(2).value // Adjust index for alternating turns
+    );
+
+    // Serialize the updated guess history
+    const serializedUpdatedGuessHistory =
+      serializeCombinationHistory(updatedGuessHistory);
+
+    // Store the updated serialized guess history
+    this.packedGuessHistory.set(serializedUpdatedGuessHistory);
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
@@ -194,20 +220,37 @@ export class MastermindZkApp extends SmartContract {
         'The secret combination is not compliant with the stored hash on-chain!'
       );
 
-    // Fetch & separate the on-chain guess
-    const unseparatedGuess = this.unseparatedGuess.getAndRequireEquals();
-    const guessDigits = separateCombinationDigits(unseparatedGuess);
+    // Fetch and deserialize the on-chain guess history
+    const serializedGuessHistory =
+      this.packedGuessHistory.getAndRequireEquals();
+    const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
 
-    // Scan the guess through the solution and return clue result(hit or blow)
+    // Get the latest guess based on the latest guess index
+    const guessIndex = turnCount.div(2).sub(1).value;
+    const latestGuess = combinationAtIndex(guessHistory, guessIndex);
+    const guessDigits = separateCombinationDigits(latestGuess);
+
+    // Determine clue (hit/blow) based on the guess and solution
     let clue = getClueFromGuess(guessDigits, solution);
 
-    // Check if the guess is correct & update the on-chain state
+    // Check if the guess is correct and update the solved status on-chain
     let isSolved = checkIfSolved(clue);
     this.isSolved.set(isSolved);
 
-    // Serialize & update the on-chain clue
+    // Serialize and update the on-chain clue history
     const serializedClue = serializeClue(clue);
-    this.serializedClue.set(serializedClue);
+    const serializedClueHistory = this.packedClueHistory.getAndRequireEquals();
+    const clueHistory = deserializeClueHistory(serializedClueHistory);
+    const updatedClueHistory = updateGuessHistory(
+      serializedClue,
+      clueHistory,
+      guessIndex
+    );
+
+    // Serialize and store the updated clue history on-chain
+    const serializedUpdatedClueHistory =
+      serializeClueHistory(updatedClueHistory);
+    this.packedClueHistory.set(serializedUpdatedClueHistory);
 
     // Increment the on-chain turnCount
     this.turnCount.set(turnCount.add(1));
