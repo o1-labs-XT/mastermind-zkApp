@@ -1,15 +1,4 @@
 import { Field, Bool, Provable } from 'o1js';
-/*
-- add unit tests for serialization 
-- optional: => pack maxAttemts, turnCount, and isSolved together
-- add note to jsDoc for combination serialization
-- add note about serialzedClueHistory interpretation in jsdoc/readme
-- separate clue digits vs combination digits in the documentation
-- refer to mina-battleships for packing techniques in the readme
-- add description for elementAtIndex with more details in the readme
-- Benchmark and track the difference in constraints when using packing techniques
-- add figures for the packing techniques
- */
 
 export {
   separateCombinationDigits,
@@ -259,24 +248,30 @@ function getElementAtIndex(fieldArray: Field[], index: Field): Field {
 
 /**
  * Updates an array of `Field` elements at a specified index with a new value.
+ * Ensures the index is within bounds and updates only the specified element, while retaining all others.
  *
- * @param newValue - The new value to be inserted at the specified index.
+ * @param newValue - The new `Field` value to insert at the specified index.
  * @param fieldArray - The current array of `Field` elements.
  * @param index - The index at which to update the array.
- * @returns - The updated array of `Field` elements.
+ * @returns - The updated array of `Field` elements with the new value at the specified index.
+ * @throws Will throw an error if the index is out of bounds.
  */
 function updateElementAtIndex(
   newValue: Field,
   fieldArray: Field[],
   index: Field
 ): Field[] {
+  // Ensure that the index is within bounds
+  const errorMessage = 'Invalid index: Index out of bounds!';
+  index.assertLessThan(fieldArray.length, errorMessage);
+
   let updatedFieldArray: Field[] = [];
 
   // Iterate through the array and update the element at the specified index
   for (let i = 0; i < fieldArray.length; i++) {
     updatedFieldArray[i] = Provable.if(
-      index.equals(i), // Check if the current index matches the provided index
-      newValue, // If true, update with the new value
+      index.equals(i), // If current index matches the target index
+      newValue, // Update with the new value
       fieldArray[i] // Otherwise, retain the original value
     );
   }
