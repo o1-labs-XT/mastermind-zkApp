@@ -1,4 +1,15 @@
 import { Field, Bool, Provable } from 'o1js';
+/*
+- add unit tests for serialization 
+- optional: => pack maxAttemts, turnCount, and isSolved together
+- add note to jsDoc for combination serialization
+- add note about serialzedClueHistory interpretation in jsdoc/readme
+- separate clue digits vs combination digits in the documentation
+- refer to mina-battleships for packing techniques in the readme
+- add description for elementAtIndex with more details in the readme
+- Benchmark and track the difference in constraints when using packing techniques
+- add figures for the packing techniques
+ */
 
 export {
   separateCombinationDigits,
@@ -12,8 +23,8 @@ export {
   checkIfSolved,
   serializeCombinationHistory,
   deserializeCombinationHistory,
-  combinationAtIndex,
-  updateGuessHistory,
+  getElementAtIndex,
+  updateElementAtIndex,
 };
 
 /**
@@ -134,37 +145,18 @@ function deserializeClue(serializedClue: Field): Field[] {
  * @returns - A serialized `Field` containing the bitwise representation of the clue history.
  */
 function serializeClueHistory(clues: Field[]): Field {
-  // Convert each clue to an 8-bit representation
-  const clueBits = clues.map((c) => c.toBits(8));
-
-  // Flatten the bit arrays and combine them into a single Field
-  const serializedClueHistory = Field.fromBits(clueBits.flat());
-
-  return serializedClueHistory;
+  return serialize(clues, 8);
 }
 
 /**
- * Deserializes a `Field` back into an array of clues by converting its 8-bit segments into individual `Field` elements.
+ * Deserializes a `Field` back into an array of clues, where each clue is 8 bits long.
  *
- * @param serializedClueHistory - A `Field` containing the serialized bitwise representation of the clue history.
- * @returns- An array of `Field` elements representing the deserialized clue history.
+ * @param serializedClueHistory - A `Field` containing the serialized clue history.
+ * @returns - The deserialized array of `Field` elements representing the clues.
  */
 function deserializeClueHistory(serializedClueHistory: Field): Field[] {
-  // Convert the serialized clue history back into its bit representation (120 bits)
-  const clueHistoryBits = serializedClueHistory.toBits(120);
-
-  const cluesBits: Bool[][] = [];
-
-  // Slice the bit representation into smaller arrays of length 8 to recover individual clues
-  for (let i = 0; i < clueHistoryBits.length; i += 8) {
-    const clueBits = clueHistoryBits.slice(i, i + 8);
-    cluesBits.push(clueBits);
-  }
-
-  // Convert each bit array back into a Field element representing the clue
-  const clueHistory = cluesBits.map((bits) => Field.fromBits(bits));
-
-  return clueHistory;
+  // 120 bits total, each clue is 8 bits
+  return deserialize(serializedClueHistory, 120, 8);
 }
 
 /**
@@ -212,58 +204,46 @@ function checkIfSolved(clue: Field[]) {
 }
 
 /**
- * Serializes an array of combinations into a single `Field` value by converting
- * each combination into 14 bits and flattening the resulting bit arrays.
+ * Serializes an array of combinations into a single `Field` by converting each combination into 14 bits.
  *
- * @param combinations - An array of `Field` elements representing combinations.
- * @returns A serialized `Field` value that represents the entire combination history.
+ * @param combinations - The array of `Field` elements representing combinations.
+ * @returns - The serialized `Field` containing the combination history.
  */
 function serializeCombinationHistory(combinations: Field[]): Field {
-  const combinationBits = combinations.map((c) => c.toBits(14));
-  const serializedCombinationHistory = Field.fromBits(combinationBits.flat());
-
-  return serializedCombinationHistory;
+  return serialize(combinations, 14);
 }
 
 /**
- * Deserializes a `Field` value back into an array of combinations by splitting
- * the bit representation into chunks of 14 bits and converting them back to `Field` elements.
+ * Deserializes a `Field` back into an array of combinations, where each combination is 14 bits long.
  *
- * @param serializedCombinationHistory - A `Field` value containing serialized combinations.
- * @returns An array of `Field` elements representing the deserialized combination history.
+ * @param serializedCombinationHistory - A `Field` containing the serialized combination history.
+ * @returns - The deserialized array of `Field` elements representing the combinations.
  */
 function deserializeCombinationHistory(
   serializedCombinationHistory: Field
 ): Field[] {
-  const combinationHistoryBits = serializedCombinationHistory.toBits(210);
-  const combinationBits: Bool[][] = [];
-
-  // Slice the bit representation into smaller arrays of length 14 and convert back to combinations
-  for (let i = 0; i < combinationHistoryBits.length; i += 14) {
-    const parsedArray = combinationHistoryBits.slice(i, i + 14);
-    combinationBits.push(parsedArray);
-  }
-
-  return combinationBits.map((f) => Field.fromBits(f));
+  // 210 bits total, each combination is 14 bits
+  return deserialize(serializedCombinationHistory, 210, 14);
 }
 
 /**
- * Retrieves the `Field` element at a specified index from an array of `Field` elements (combinations).
+ * Retrieves the `Field` element at a specified index from an array of `Field` elements.
  * Ensures that only one element matches the provided index and throws an error if none or multiple match.
  *
- * @param combinationArray - An array of `Field` elements representing combinations.
- * @param index - The index of the combination to retrieve as a `Field`.
- * @returns The `Field` element at the specified index.
+ * @param fieldArray - An array of `Field` elements.
+ * @param index - The index of the element to retrieve as a `Field`.
+ * @returns - The `Field` element at the specified index.
  * @throws Will throw an error if the index is out of bounds or if multiple indices match.
  */
-function combinationAtIndex(combinationArray: Field[], index: Field): Field {
-  const length = combinationArray.length;
+function getElementAtIndex(fieldArray: Field[], index: Field): Field {
+  const length = fieldArray.length;
   let totalIndexMatch = Field(0);
   let selectedValue = Field(0);
 
+  // Iterate through the array and match the element at the given index
   for (let i = 0; i < length; i++) {
     const isMatch = index.equals(Field(i)).toField(); // `1` if index matches, otherwise `0`
-    const matchingValue = isMatch.mul(combinationArray[i]); // Retain value only if index matches
+    const matchingValue = isMatch.mul(fieldArray[i]); // Retain value only if index matches
 
     selectedValue = selectedValue.add(matchingValue); // Accumulate the matching value
     totalIndexMatch = totalIndexMatch.add(isMatch); // Track if exactly one index matched
@@ -274,33 +254,72 @@ function combinationAtIndex(combinationArray: Field[], index: Field): Field {
     'Invalid index: Index out of bounds or multiple indices match!';
   totalIndexMatch.assertEquals(1, errorMessage);
 
-  return selectedValue; // Return the selected value as a `Field`
+  return selectedValue; // Return the selected value
 }
 
 /**
- * Updates the guess history for the code breaker based on a new guess.
+ * Updates an array of `Field` elements at a specified index with a new value.
  *
- * @param guess - The current guess to be recorded.
- * @param guessHistory - The current history of previous guesses for the player.
- * @param index - The index at which to update the guess history.
- * @returns - The updated guess history for the player.
- * @note Ensure that the guess is validated before calling this function to maintain data integrity.
+ * @param newValue - The new value to be inserted at the specified index.
+ * @param fieldArray - The current array of `Field` elements.
+ * @param index - The index at which to update the array.
+ * @returns - The updated array of `Field` elements.
  */
-function updateGuessHistory(
-  guess: Field,
-  guessHistory: Field[],
+function updateElementAtIndex(
+  newValue: Field,
+  fieldArray: Field[],
   index: Field
 ): Field[] {
-  let updatedGuessHistory: Field[] = [];
+  let updatedFieldArray: Field[] = [];
 
-  // Loop through the guess history and update the element at the specified index
-  for (let i = 0; i < guessHistory.length; i++) {
-    updatedGuessHistory[i] = Provable.if(
+  // Iterate through the array and update the element at the specified index
+  for (let i = 0; i < fieldArray.length; i++) {
+    updatedFieldArray[i] = Provable.if(
       index.equals(i), // Check if the current index matches the provided index
-      guess, // If true, update with the new guess
-      guessHistory[i] // Otherwise, retain the original value
+      newValue, // If true, update with the new value
+      fieldArray[i] // Otherwise, retain the original value
     );
   }
 
-  return updatedGuessHistory;
+  return updatedFieldArray;
+}
+
+/**
+ * Serializes an array of `Field` elements by converting each element into its bit representation
+ * and flattening the resulting bit arrays into a single `Field`.
+ *
+ * @param fields - The array of `Field` elements to serialize.
+ * @param range - The number of bits for each `Field` element.
+ * @returns - A single `Field` containing the serialized bit representation of the array.
+ */
+function serialize(fields: Field[], range: number): Field {
+  const bits = fields.map((c) => c.toBits(range));
+  return Field.fromBits(bits.flat());
+}
+
+/**
+ * Deserializes a `Field` into an array of `Field` elements by splitting its bit representation
+ * into chunks and converting them back into `Field` elements.
+ *
+ * @param serializedField - The serialized `Field` to deserialize.
+ * @param size - The total number of bits in the serialized `Field`.
+ * @param chunkSize - The bit size of each individual element in the array.
+ * @returns - An array of deserialized `Field` elements.
+ */
+function deserialize(
+  serializedField: Field,
+  size: number,
+  chunkSize: number
+): Field[] {
+  const packedBits = serializedField.toBits(size);
+  const unpackedBits: Bool[][] = [];
+
+  // Slice the bit representation into smaller arrays of length `chunkSize`
+  for (let i = 0; i < packedBits.length; i += chunkSize) {
+    const chunk = packedBits.slice(i, i + chunkSize);
+    unpackedBits.push(chunk);
+  }
+
+  const unpacked = unpackedBits.map((bits) => Field.fromBits(bits));
+  return unpacked;
 }

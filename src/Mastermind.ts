@@ -14,14 +14,14 @@ import {
   separateCombinationDigits,
   validateCombination,
   serializeClue,
+  serializeClueHistory,
+  deserializeClueHistory,
   getClueFromGuess,
   checkIfSolved,
-  deserializeCombinationHistory,
-  updateGuessHistory,
   serializeCombinationHistory,
-  combinationAtIndex,
-  deserializeClueHistory,
-  serializeClueHistory,
+  deserializeCombinationHistory,
+  getElementAtIndex,
+  updateElementAtIndex,
 } from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
@@ -151,7 +151,7 @@ export class MastermindZkApp extends SmartContract {
     const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
 
     // Update the guess history with the new guess at the calculated index (based on turn count)
-    const updatedGuessHistory = updateGuessHistory(
+    const updatedGuessHistory = updateElementAtIndex(
       guess,
       guessHistory,
       turnCount.sub(1).div(2).value // Adjust index for alternating turns
@@ -227,7 +227,7 @@ export class MastermindZkApp extends SmartContract {
 
     // Get the latest guess based on the latest guess index
     const guessIndex = turnCount.div(2).sub(1).value;
-    const latestGuess = combinationAtIndex(guessHistory, guessIndex);
+    const latestGuess = getElementAtIndex(guessHistory, guessIndex);
     const guessDigits = separateCombinationDigits(latestGuess);
 
     // Determine clue (hit/blow) based on the guess and solution
@@ -241,7 +241,7 @@ export class MastermindZkApp extends SmartContract {
     const serializedClue = serializeClue(clue);
     const serializedClueHistory = this.packedClueHistory.getAndRequireEquals();
     const clueHistory = deserializeClueHistory(serializedClueHistory);
-    const updatedClueHistory = updateGuessHistory(
+    const updatedClueHistory = updateElementAtIndex(
       serializedClue,
       clueHistory,
       guessIndex
