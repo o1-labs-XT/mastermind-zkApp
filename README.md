@@ -1,6 +1,6 @@
 # Mina zkApp: Mina Mastermind
 
-![alt text](./mastermind-board.png)
+![alt text](./images/mastermind-board.png)
 
 # Table of Contents
 
@@ -339,7 +339,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
   - `14 bits per guess * 15 guesses = 210 bits`
 
-    ![Packed Guess History](./images/guessHIstory-mastermind.png)
+    ![Packed Guess History](./images/guessHistory-mastermind.png)
 
 - To compress the serialized `210` bits back into a single field, we use the `fromBits()` API:
 
