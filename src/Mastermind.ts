@@ -8,23 +8,29 @@ import {
   Provable,
   Poseidon,
   Bool,
+  Experimental,
 } from 'o1js';
 
 import {
   separateCombinationDigits,
   validateCombination,
   serializeClue,
-  serializeClueHistory,
-  deserializeClueHistory,
   getClueFromGuess,
   checkIfSolved,
-  serializeCombinationHistory,
-  deserializeCombinationHistory,
-  getElementAtIndex,
-  updateElementAtIndex,
 } from './utils.js';
 
-export class MastermindZkApp extends SmartContract {
+export { MastermindZkApp, MerkleMap };
+
+const { IndexedMerkleMap } = Experimental;
+const height = 4;
+class MerkleMap extends IndexedMerkleMap(height) {}
+
+const EMPTY_INDEXED_TREE4_ROOT =
+  Field(
+    848604956632493824118771612864662079593461935463909306433364671356729156850n
+  );
+
+class MastermindZkApp extends SmartContract {
   @state(UInt8) maxAttempts = State<UInt8>();
   @state(UInt8) turnCount = State<UInt8>();
   @state(Bool) isSolved = State<Bool>();
@@ -33,8 +39,8 @@ export class MastermindZkApp extends SmartContract {
   @state(Field) codebreakerId = State<Field>();
 
   @state(Field) solutionHash = State<Field>();
-  @state(Field) packedGuessHistory = State<Field>();
-  @state(Field) packedClueHistory = State<Field>();
+  @state(Field) historyCommitment = State<Field>();
+  @state(Field) lastGuess = State<Field>();
 
   @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
@@ -42,6 +48,9 @@ export class MastermindZkApp extends SmartContract {
 
     // Sets your entire state to 0.
     super.init();
+
+    // Initialize root as the empty root of an indexed Merkle tree with height 4
+    this.historyCommitment.set(EMPTY_INDEXED_TREE4_ROOT);
 
     maxAttempts.assertGreaterThanOrEqual(
       UInt8.from(5),
@@ -88,9 +97,9 @@ export class MastermindZkApp extends SmartContract {
     this.turnCount.set(turnCount.add(1));
   }
 
-  //! Before calling this method the codebreaker should interpret
-  //! the codemaster clue beforehand and make a guess
-  @method async makeGuess(guess: Field) {
+  //! Warning: The Code Breaker must interpret the most recent clue from the Code Master before calling this method.
+  //! The process involves retrieving the latest clue from the history tree, unpacking it, and using it to guide the next guess.
+  @method async makeGuess(guess: Field, history: MerkleMap) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertTrue('The game has not been initialized yet!');
 
@@ -143,32 +152,31 @@ export class MastermindZkApp extends SmartContract {
     const guessDigits = separateCombinationDigits(guess);
     validateCombination(guessDigits);
 
-    // Fetch the serialized guess history
-    const serializedGuessHistory =
-      this.packedGuessHistory.getAndRequireEquals();
+    // Validate integrity of the history Merkle Map
+    const currentRoot = this.historyCommitment.getAndRequireEquals();
+    currentRoot.assertEquals(history.root);
 
-    // Deserialize the guess history into an array of combinations
-    const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
+    // Insert the new guess with an initial value of 0
+    // This prevents the Code Breaker from repeating the same guess in future attempts
+    history = history.clone();
+    history.insert(guess, Field(0));
 
-    // Update the guess history with the new guess at the calculated index (based on turn count)
-    const updatedGuessHistory = updateElementAtIndex(
-      guess,
-      guessHistory,
-      turnCount.sub(1).div(2).value // Adjust index for alternating turns
-    );
+    // Update on-chain history root / commitment
+    const historyCommitmentNew = history.root;
+    this.historyCommitment.set(historyCommitmentNew);
 
-    // Serialize the updated guess history
-    const serializedUpdatedGuessHistory =
-      serializeCombinationHistory(updatedGuessHistory);
-
-    // Store the updated serialized guess history
-    this.packedGuessHistory.set(serializedUpdatedGuessHistory);
+    // Update last guess for the code master to fetch
+    this.lastGuess.set(guess);
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
   }
 
-  @method async giveClue(unseparatedSecretCombination: Field, salt: Field) {
+  @method.returns(MerkleMap) async giveClue(
+    unseparatedSecretCombination: Field,
+    salt: Field,
+    history: MerkleMap
+  ) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertTrue('The game has not been initialized yet!');
 
@@ -220,39 +228,38 @@ export class MastermindZkApp extends SmartContract {
         'The secret combination is not compliant with the stored hash on-chain!'
       );
 
-    // Fetch and deserialize the on-chain guess history
-    const serializedGuessHistory =
-      this.packedGuessHistory.getAndRequireEquals();
-    const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
+    // Validate integrity of the Merkle Map
+    const currentRoot = this.historyCommitment.getAndRequireEquals();
+    currentRoot.assertEquals(history.root);
 
-    // Get the latest guess based on the latest guess index
-    const guessIndex = turnCount.div(2).sub(1).value;
-    const latestGuess = getElementAtIndex(guessHistory, guessIndex);
-    const guessDigits = separateCombinationDigits(latestGuess);
+    const lastGuess = this.lastGuess.getAndRequireEquals();
+
+    //TODO test and add error message
+    history = history.clone();
+
+    // Assert that no clue was given yet!
+    history.get(lastGuess).assertEquals(0);
+
+    const guessDigits = separateCombinationDigits(lastGuess);
 
     // Determine clue (hit/blow) based on the guess and solution
     let clue = getClueFromGuess(guessDigits, solution);
+
+    // Assign the packed clue to the last guess in the history Merkle Map
+    const serializedClue = serializeClue(clue);
+    history.update(lastGuess, serializedClue);
+
+    // Update on-chain history root / commitment
+    const historyCommitmentNew = history.root;
+    this.historyCommitment.set(historyCommitmentNew);
 
     // Check if the guess is correct and update the solved status on-chain
     let isSolved = checkIfSolved(clue);
     this.isSolved.set(isSolved);
 
-    // Serialize and update the on-chain clue history
-    const serializedClue = serializeClue(clue);
-    const serializedClueHistory = this.packedClueHistory.getAndRequireEquals();
-    const clueHistory = deserializeClueHistory(serializedClueHistory);
-    const updatedClueHistory = updateElementAtIndex(
-      serializedClue,
-      clueHistory,
-      guessIndex
-    );
-
-    // Serialize and store the updated clue history on-chain
-    const serializedUpdatedClueHistory =
-      serializeClueHistory(updatedClueHistory);
-    this.packedClueHistory.set(serializedUpdatedClueHistory);
-
     // Increment the on-chain turnCount
     this.turnCount.set(turnCount.add(1));
+
+    return history;
   }
 }
