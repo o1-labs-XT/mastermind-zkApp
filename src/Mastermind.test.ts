@@ -254,6 +254,7 @@ describe('Mastermind ZkApp Tests', () => {
   describe('makeGuess method tests: first guess', () => {
     async function testInvalidGuess(
       guess: number[],
+      historyMerkleMap = history,
       expectedErrorMessage?: string
     ) {
       const unseparatedGuess = compressCombinationDigits(guess.map(Field));
@@ -262,7 +263,7 @@ describe('Mastermind ZkApp Tests', () => {
         const tx = await Mina.transaction(
           codebreakerKey.toPublicKey(),
           async () => {
-            await zkapp.makeGuess(unseparatedGuess, history);
+            await zkapp.makeGuess(unseparatedGuess, historyMerkleMap);
           }
         );
 
@@ -275,12 +276,25 @@ describe('Mastermind ZkApp Tests', () => {
 
     it('should reject codebreaker with invalid guess combination: fouth digit is 0', async () => {
       const expectedErrorMessage = 'Combination digit 4 should not be zero!';
-      await testInvalidGuess([6, 9, 3, 0], expectedErrorMessage);
+      await testInvalidGuess([6, 9, 3, 0], history, expectedErrorMessage);
     });
 
     it('should reject codebreaker with invalid guess combination: second digit is not unique', async () => {
       const expectedErrorMessage = 'Combination digit 2 is not unique!';
-      await testInvalidGuess([1, 1, 2, 9], expectedErrorMessage);
+      await testInvalidGuess([1, 1, 2, 9], history, expectedErrorMessage);
+    });
+
+    it('should reject Code Breaker with tampered history Merkle Map', async () => {
+      const tamperedHistory = history.clone();
+      tamperedHistory.insert(Field(1235), Field(0));
+
+      const expectedErrorMessage =
+        'Off-chain history Merkle Map is out of sync!';
+      await testInvalidGuess(
+        [1, 3, 2, 9],
+        tamperedHistory,
+        expectedErrorMessage
+      );
     });
 
     // validGuess = [1, 5, 6, 2]
@@ -302,27 +316,34 @@ describe('Mastermind ZkApp Tests', () => {
       await makeGuessTx.prove();
       await makeGuessTx.sign([codebreakerKey]).send();
 
+      // Update the off-chain Merkle Map
+      history.insert(unseparatedGuess, Field(0));
+
       // Test that the on-chain states are updated
       const updatedCodebreakerId = zkapp.codebreakerId.get();
       expect(updatedCodebreakerId).not.toEqual(Field(0));
 
+      const historyCommitment = zkapp.historyCommitment.get();
+      expect(historyCommitment).toEqual(history.root);
+
+      const lastGuess = zkapp.lastGuess.get();
+      expect(lastGuess).toEqual(unseparatedGuess);
+
       const turnCount = zkapp.turnCount.get().toNumber();
       expect(turnCount).toEqual(2);
-
-      // Update the local Merkle Map
-      history.insert(unseparatedGuess, Field(0));
     });
 
     it('should reject the codebraker from calling this method if the clue from previous turn is not reported yet', async () => {
       const expectedErrorMessage =
         'Please wait for the codemaster to give you a clue!';
-      await testInvalidGuess([1, 2, 2, 9], expectedErrorMessage);
+      await testInvalidGuess([1, 2, 2, 9], history, expectedErrorMessage);
     });
   });
 
   describe('giveClue method tests', () => {
     async function testInvalidClue(
       combination: number[],
+      historyMerkleMap: MerkleMap,
       expectedErrorMessage?: string,
       signerKey = codemasterKey,
       signerSalt = codemasterSalt
@@ -333,7 +354,7 @@ describe('Mastermind ZkApp Tests', () => {
 
       const giveClueTx = async () => {
         const tx = await Mina.transaction(signerKey.toPublicKey(), async () => {
-          await zkapp.giveClue(secretCombination, signerSalt, history);
+          await zkapp.giveClue(secretCombination, signerSalt, historyMerkleMap);
         });
 
         await tx.prove();
@@ -346,7 +367,12 @@ describe('Mastermind ZkApp Tests', () => {
     it('should reject any caller other than the codemaster', async () => {
       const expectedErrorMessage =
         'Only the codemaster of this game is allowed to give clue!';
-      await testInvalidClue([1, 2, 3, 4], expectedErrorMessage, intruderKey);
+      await testInvalidClue(
+        [1, 2, 3, 4],
+        history,
+        expectedErrorMessage,
+        intruderKey
+      );
     });
 
     it('should reject codemaster with different salt', async () => {
@@ -355,6 +381,7 @@ describe('Mastermind ZkApp Tests', () => {
         'The secret combination is not compliant with the stored hash on-chain!';
       await testInvalidClue(
         [1, 2, 3, 4],
+        history,
         expectedErrorMessage,
         codemasterKey,
         differentSalt
@@ -364,7 +391,20 @@ describe('Mastermind ZkApp Tests', () => {
     it('should reject codemaster with non-compliant secret combination', async () => {
       const expectedErrorMessage =
         'The secret combination is not compliant with the stored hash on-chain!';
-      await testInvalidClue([1, 5, 3, 4], expectedErrorMessage);
+      await testInvalidClue([1, 5, 3, 4], history, expectedErrorMessage);
+    });
+
+    it('should reject Code Master with tampered history Merkle Map', async () => {
+      const tamperedHistory = history.clone();
+      tamperedHistory.update(Field(1562), Field(15));
+
+      const expectedErrorMessage =
+        'Off-chain history Merkle Map is out of sync!';
+      await testInvalidClue(
+        [1, 2, 3, 4],
+        tamperedHistory,
+        expectedErrorMessage
+      );
     });
 
     it('should accept codemaster clue and update on-chain state', async () => {
@@ -394,6 +434,9 @@ describe('Mastermind ZkApp Tests', () => {
 
       expect(clue).toEqual([2, 0, 0, 1].map(Field));
 
+      const historyCommitment = zkapp.historyCommitment.get();
+      expect(historyCommitment).toEqual(history.root);
+
       const isSolved = zkapp.isSolved.get().toBoolean();
       expect(isSolved).toEqual(false);
 
@@ -404,7 +447,7 @@ describe('Mastermind ZkApp Tests', () => {
     it('should reject the codemaster from calling this method out of sequence', async () => {
       const expectedErrorMessage =
         'Please wait for the codebreaker to make a guess!';
-      await testInvalidClue([1, 2, 3, 4], expectedErrorMessage);
+      await testInvalidClue([1, 2, 3, 4], history, expectedErrorMessage);
     });
   });
 
@@ -433,6 +476,10 @@ describe('Mastermind ZkApp Tests', () => {
       await testInvalidGuess([1, 4, 7, 2], expectedErrorMessage, intruderKey);
     });
 
+    it('should prevent the codebreaker from submitting the same guess', async () => {
+      await testInvalidGuess([1, 5, 6, 2]);
+    });
+
     // validGuess2 = [1, 4, 7, 2]
     it('should accept another valid guess & update on-chain state', async () => {
       const secondGuess = [1, 4, 7, 2];
@@ -457,7 +504,7 @@ describe('Mastermind ZkApp Tests', () => {
       const turnCount = zkapp.turnCount.get().toNumber();
       expect(turnCount).toEqual(4);
 
-      // Update the local history Merkle Map with the new guess
+      // Update the off-chain history Merkle Map with the new guess
       history.insert(unseparatedGuess, Field(0));
     });
 
@@ -482,7 +529,7 @@ describe('Mastermind ZkApp Tests', () => {
       await makeGuessTx.prove();
       await makeGuessTx.sign([codebreakerKey]).send();
 
-      // Update the local history Merkle Map with the new guess
+      // Update the off-chain history Merkle Map with the new guess
       history.insert(unseparatedGuess, Field(0));
     }
 
@@ -609,7 +656,7 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     await makeGuessTx.prove();
     await makeGuessTx.sign([codebreakerKey]).send();
 
-    // Update the local history Merkle Map with the new guess
+    // Update the off-chain history Merkle Map with the new guess
     history.insert(unseparatedGuess, Field(0));
   }
 
