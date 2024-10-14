@@ -154,14 +154,17 @@ class MastermindZkApp extends SmartContract {
 
     // Validate integrity of the history Merkle Map
     const currentRoot = this.historyCommitment.getAndRequireEquals();
-    currentRoot.assertEquals(history.root);
+    currentRoot.assertEquals(
+      history.root,
+      'Off-chain history Merkle Map is out of sync!'
+    );
 
     // Insert the new guess with an initial value of 0
-    // This prevents the Code Breaker from repeating the same guess in future attempts
+    // This also prevents the Code Breaker from repeating the same guess in future attempts
     history = history.clone();
     history.insert(guess, Field(0));
 
-    // Update on-chain history root / commitment
+    // Update on-chain history commitment
     const historyCommitmentNew = history.root;
     this.historyCommitment.set(historyCommitmentNew);
 
@@ -228,28 +231,26 @@ class MastermindZkApp extends SmartContract {
         'The secret combination is not compliant with the stored hash on-chain!'
       );
 
-    // Validate integrity of the Merkle Map
+    // Validate integrity of the history Merkle Map
     const currentRoot = this.historyCommitment.getAndRequireEquals();
-    currentRoot.assertEquals(history.root);
+    currentRoot.assertEquals(
+      history.root,
+      'Off-chain history Merkle Map is out of sync!'
+    );
 
     const lastGuess = this.lastGuess.getAndRequireEquals();
-
-    //TODO test and add error message
-    history = history.clone();
-
-    // Assert that no clue was given yet!
-    history.get(lastGuess).assertEquals(0);
 
     const guessDigits = separateCombinationDigits(lastGuess);
 
     // Determine clue (hit/blow) based on the guess and solution
     let clue = getClueFromGuess(guessDigits, solution);
+    const serializedClue = serializeClue(clue);
 
     // Assign the packed clue to the last guess in the history Merkle Map
-    const serializedClue = serializeClue(clue);
+    history = history.clone();
     history.update(lastGuess, serializedClue);
 
-    // Update on-chain history root / commitment
+    // Update on-chain history commitment
     const historyCommitmentNew = history.root;
     this.historyCommitment.set(historyCommitmentNew);
 
