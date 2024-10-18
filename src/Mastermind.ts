@@ -40,7 +40,7 @@ class MastermindZkApp extends SmartContract {
 
   @state(Field) solutionHash = State<Field>();
   @state(Field) historyCommitment = State<Field>();
-  @state(Field) lastGuess = State<Field>();
+  @state(Field) latestGuess = State<Field>();
 
   @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
@@ -116,7 +116,7 @@ class MastermindZkApp extends SmartContract {
       'Please wait for the codemaster to give you a clue!'
     );
 
-    //! Assert that the codebreaker has not reached the limit number of attempts
+    //! Assert that the codebreaker has not reached the limited number of attempts
     const maxAttempts = this.maxAttempts.getAndRequireEquals();
     turnCount.assertLessThan(
       maxAttempts.mul(2),
@@ -169,7 +169,7 @@ class MastermindZkApp extends SmartContract {
     this.historyCommitment.set(historyCommitmentNew);
 
     // Update last guess for the code master to fetch
-    this.lastGuess.set(guess);
+    this.latestGuess.set(guess);
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
@@ -198,7 +198,7 @@ class MastermindZkApp extends SmartContract {
         'Only the codemaster of this game is allowed to give clue!'
       );
 
-    //! Assert that the codebreaker has not reached the limit number of attempts
+    //! Assert that the codebreaker has not reached the limited number of attempts
     const maxAttempts = this.maxAttempts.getAndRequireEquals();
     turnCount.assertLessThanOrEqual(
       maxAttempts.mul(2),
@@ -212,7 +212,7 @@ class MastermindZkApp extends SmartContract {
         'The codebreaker has already solved the secret combination!'
       );
 
-    //! Assert that the turnCount is pair & not zero for the codemaster to call this method
+    //! Assert that the turnCount is even & not zero for the codemaster to call this method
     const isNotFirstTurn = turnCount.value.equals(0).not();
     const isCodemasterTurn = turnCount.value.isEven().and(isNotFirstTurn);
     isCodemasterTurn.assertTrue(
@@ -238,9 +238,9 @@ class MastermindZkApp extends SmartContract {
       'Off-chain history Merkle Map is out of sync!'
     );
 
-    const lastGuess = this.lastGuess.getAndRequireEquals();
+    const latestGuess = this.latestGuess.getAndRequireEquals();
 
-    const guessDigits = separateCombinationDigits(lastGuess);
+    const guessDigits = separateCombinationDigits(latestGuess);
 
     // Determine clue (hit/blow) based on the guess and solution
     let clue = getClueFromGuess(guessDigits, solution);
@@ -248,7 +248,7 @@ class MastermindZkApp extends SmartContract {
 
     // Assign the packed clue to the last guess in the history Merkle Map
     history = history.clone();
-    history.update(lastGuess, serializedClue);
+    history.update(latestGuess, serializedClue);
 
     // Update on-chain history commitment
     const historyCommitmentNew = history.root;

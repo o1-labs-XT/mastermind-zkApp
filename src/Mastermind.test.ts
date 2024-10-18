@@ -172,8 +172,8 @@ describe('Mastermind ZkApp Tests', () => {
         )
       );
 
-      const lastGuess = zkapp.lastGuess.get();
-      expect(lastGuess).toEqual(Field(0));
+      const latestGuess = zkapp.latestGuess.get();
+      expect(latestGuess).toEqual(Field(0));
 
       // Initialized manually
       const rounds = zkapp.maxAttempts.get();
@@ -326,8 +326,8 @@ describe('Mastermind ZkApp Tests', () => {
       const historyCommitment = zkapp.historyCommitment.get();
       expect(historyCommitment).toEqual(history.root);
 
-      const lastGuess = zkapp.lastGuess.get();
-      expect(lastGuess).toEqual(unseparatedGuess);
+      const latestGuess = zkapp.latestGuess.get();
+      expect(latestGuess).toEqual(unseparatedGuess);
 
       const turnCount = zkapp.turnCount.get().toNumber();
       expect(turnCount).toEqual(2);
@@ -423,14 +423,14 @@ describe('Mastermind ZkApp Tests', () => {
       await giveClueTx.prove();
       await giveClueTx.sign([codemasterKey]).send();
 
-      const lastGuess = zkapp.lastGuess.get();
+      const latestGuess = zkapp.latestGuess.get();
       const clue = getClueFromGuess(
-        separateCombinationDigits(lastGuess),
+        separateCombinationDigits(latestGuess),
         solution.map(Field)
       );
 
       const serializedClue = serializeClue(clue);
-      history.update(lastGuess, serializedClue);
+      history.update(latestGuess, serializedClue);
 
       expect(clue).toEqual([2, 0, 0, 1].map(Field));
 
@@ -554,11 +554,11 @@ describe('Mastermind ZkApp Tests', () => {
       await giveClueTx.prove();
       await giveClueTx.sign([codemasterKey]).send();
 
-      const lastGuess = zkapp.lastGuess.get();
+      const latestGuess = zkapp.latestGuess.get();
 
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       history = newHistory!.clone();
-      const serializedClue = history.get(lastGuess);
+      const serializedClue = history.get(latestGuess);
       const clue = deserializeClue(serializedClue);
 
       expect(clue).toEqual(expectedClue.map(Field));
@@ -679,11 +679,11 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     await giveClueTx.prove();
     await giveClueTx.sign([codemasterKey]).send();
 
-    const lastGuess = zkapp.lastGuess.get();
+    const latestGuess = zkapp.latestGuess.get();
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     history = newHistory!.clone();
-    const serializedClue = history.get(lastGuess);
+    const serializedClue = history.get(latestGuess);
     const clue = deserializeClue(serializedClue);
 
     expect(clue).toEqual(expectedClue.map(Field));
