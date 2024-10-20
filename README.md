@@ -1,4 +1,4 @@
-# Mina zkApp: Mina Mastermind
+# Mina zkApp: Mina Mastermind Level 1
 
 ![alt text](./mastermind-board.png)
 
