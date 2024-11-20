@@ -7,7 +7,6 @@ import {
   UInt8,
   Provable,
   Poseidon,
-  Bool,
   Experimental,
 } from 'o1js';
 
@@ -19,28 +18,32 @@ import {
   checkIfSolved,
 } from './utils.js';
 
-export { MastermindZkApp, MerkleMap };
+export { MastermindZkApp, offchainState };
 
-const { IndexedMerkleMap } = Experimental;
-const height = 4;
-class MerkleMap extends IndexedMerkleMap(height) {}
+const { OffchainState } = Experimental;
 
-const EMPTY_INDEXED_TREE4_ROOT =
-  Field(
-    848604956632493824118771612864662079593461935463909306433364671356729156850n
-  );
+const offchainState = OffchainState(
+  {
+    roundToGuessMap: OffchainState.Map(UInt8, Field),
+    guessToClueMap: OffchainState.Map(Field, Field),
+  },
+  { logTotalCapacity: 4, maxActionsPerUpdate: 2 }
+);
+
+class StateProof extends offchainState.Proof {}
 
 class MastermindZkApp extends SmartContract {
   @state(UInt8) maxAttempts = State<UInt8>();
   @state(UInt8) turnCount = State<UInt8>();
-  @state(Bool) isSolved = State<Bool>();
 
   @state(Field) codemasterId = State<Field>();
   @state(Field) codebreakerId = State<Field>();
 
   @state(Field) solutionHash = State<Field>();
-  @state(Field) historyCommitment = State<Field>();
-  @state(Field) latestGuess = State<Field>();
+  @state(OffchainState.Commitments) offchainStateCommitments =
+    offchainState.emptyCommitments();
+
+  offchainState = offchainState.init(this);
 
   @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
@@ -48,9 +51,6 @@ class MastermindZkApp extends SmartContract {
 
     // Sets your entire state to 0.
     super.init();
-
-    // Initialize root as the empty root of an indexed Merkle tree with height 4
-    this.historyCommitment.set(EMPTY_INDEXED_TREE4_ROOT);
 
     maxAttempts.assertGreaterThanOrEqual(
       UInt8.from(5),
@@ -99,16 +99,17 @@ class MastermindZkApp extends SmartContract {
 
   //! Warning: The Code Breaker must interpret the most recent clue from the Code Master before calling this method.
   //! The process involves retrieving the latest clue from the history tree, unpacking it, and using it to guide the next guess.
-  @method async makeGuess(guess: Field, history: MerkleMap) {
+  @method async makeGuess(guess: Field) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertTrue('The game has not been initialized yet!');
 
     const turnCount = this.turnCount.getAndRequireEquals();
 
     //! Assert that the secret combination is not solved yet
-    this.isSolved
-      .getAndRequireEquals()
-      .assertFalse('You have already solved the secret combination!');
+    turnCount.value.assertNotEquals(
+      255,
+      'You have already solved the secret combination!'
+    );
 
     //! Only allow codebreaker to call this method following the correct turn sequence
     const isCodebreakerTurn = turnCount.value.isEven().not();
@@ -152,34 +153,43 @@ class MastermindZkApp extends SmartContract {
     const guessDigits = separateCombinationDigits(guess);
     validateCombination(guessDigits);
 
-    // Validate integrity of the history Merkle Map
-    const currentRoot = this.historyCommitment.getAndRequireEquals();
-    currentRoot.assertEquals(
-      history.root,
-      'Off-chain history Merkle Map is out of sync!'
-    );
+    // while `roundCount` represents the game's progress in terms of rounds.
+    // For example, the first guess and the corresponding clue constitute the first round.
+    const roundCount = turnCount.sub(1).div(2);
 
-    // Insert the new guess with an initial value of 0
-    // This also prevents the Code Breaker from repeating the same guess in future attempts
-    history = history.clone();
-    history.insert(guess, Field(0));
+    // Update the current round with the given guess as its value
+    // -> tracks the order in which guesses are made.
+    this.offchainState.fields.roundToGuessMap.update(roundCount, {
+      from: undefined,
+      to: guess,
+    });
 
-    // Update on-chain history commitment
-    const historyCommitmentNew = history.root;
-    this.historyCommitment.set(historyCommitmentNew);
-
-    // Update last guess for the code master to fetch
-    this.latestGuess.set(guess);
+    // Map the given guess as a key to an initial placeholder clue (set to the maximum field value)
+    // -> prepares it to be updated with the actual clue later.
+    this.offchainState.fields.guessToClueMap.update(guess, {
+      from: undefined,
+      to: Field(-1),
+    });
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
   }
 
-  @method.returns(MerkleMap) async giveClue(
-    unseparatedSecretCombination: Field,
-    salt: Field,
-    history: MerkleMap
-  ) {
+  /**
+   * Settles the offchain state by providing a storage proof to the this method.
+   * Automatically retrieves and resolves all pending state changes using a recursive reducer
+   * before passing the proof to the smart contract's `settle()` method.
+   *
+   * Note: The `StateProof` should be generated for the transaction calling this method
+   * using the following:
+   *
+   * `const proof = await zkapp.offchainState.createSettlementProof();`
+   */
+  @method async settle(proof: StateProof) {
+    await this.offchainState.settle(proof);
+  }
+
+  @method async giveClue(unseparatedSecretCombination: Field, salt: Field) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertTrue('The game has not been initialized yet!');
 
@@ -198,19 +208,18 @@ class MastermindZkApp extends SmartContract {
         'Only the codemaster of this game is allowed to give clue!'
       );
 
+    //! Assert that the secret combination is not solved yet
+    turnCount.value.assertNotEquals(
+      255,
+      'The codebreaker has already solved the secret combination!'
+    );
+
     //! Assert that the codebreaker has not reached the limited number of attempts
     const maxAttempts = this.maxAttempts.getAndRequireEquals();
     turnCount.assertLessThanOrEqual(
       maxAttempts.mul(2),
       'The codebreaker has finished the number of attempts without solving the secret combination!'
     );
-
-    //! Assert that the secret combination is not solved yet
-    this.isSolved
-      .getAndRequireEquals()
-      .assertFalse(
-        'The codebreaker has already solved the secret combination!'
-      );
 
     //! Assert that the turnCount is even & not zero for the codemaster to call this method
     const isNotFirstTurn = turnCount.value.equals(0).not();
@@ -231,14 +240,13 @@ class MastermindZkApp extends SmartContract {
         'The secret combination is not compliant with the stored hash on-chain!'
       );
 
-    // Validate integrity of the history Merkle Map
-    const currentRoot = this.historyCommitment.getAndRequireEquals();
-    currentRoot.assertEquals(
-      history.root,
-      'Off-chain history Merkle Map is out of sync!'
-    );
+    const roundCount = turnCount.div(2).sub(1);
 
-    const latestGuess = this.latestGuess.getAndRequireEquals();
+    // The `roundCount` is used to fetch the latest guess from the `offchainState`,
+    // which will then be updated with the corresponding clue.
+    const latestGuess = (
+      await this.offchainState.fields.roundToGuessMap.get(roundCount)
+    ).value;
 
     const guessDigits = separateCombinationDigits(latestGuess);
 
@@ -246,21 +254,21 @@ class MastermindZkApp extends SmartContract {
     let clue = getClueFromGuess(guessDigits, solution);
     const serializedClue = serializeClue(clue);
 
-    // Assign the packed clue to the last guess in the history Merkle Map
-    history = history.clone();
-    history.update(latestGuess, serializedClue);
-
-    // Update on-chain history commitment
-    const historyCommitmentNew = history.root;
-    this.historyCommitment.set(historyCommitmentNew);
+    this.offchainState.fields.guessToClueMap.update(latestGuess, {
+      from: Field(-1),
+      to: serializedClue,
+    });
 
     // Check if the guess is correct and update the solved status on-chain
-    let isSolved = checkIfSolved(clue);
-    this.isSolved.set(isSolved);
+    const isSolved = checkIfSolved(clue);
+    const updatedTurnCount = Provable.if(
+      isSolved,
+      UInt8,
+      UInt8.from(255),
+      turnCount.add(1)
+    ).value;
 
-    // Increment the on-chain turnCount
-    this.turnCount.set(turnCount.add(1));
-
-    return history;
+    // Update the on-chain turnCount
+    this.turnCount.set(UInt8.Unsafe.fromField(updatedTurnCount));
   }
 }
