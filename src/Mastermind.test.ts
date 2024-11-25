@@ -12,6 +12,7 @@
  * - Validation of input integrity, including checks on value ranges, sizes, and the correctness of hashes and salts.
  * - Accurate updates to the on-chain state following method executions.
  * - Proper validation of constraints, ensuring assertions are correctly enforced and fail when necessary.
+ * - Validation of state updates before and after the settlement of the off-chain state.
  */
 
 import { MastermindZkApp, offchainState } from './Mastermind';
@@ -24,6 +25,15 @@ import {
   separateCombinationDigits,
 } from './utils';
 
+/**
+ * Note: These tests are executed with `proofsEnabled=false` by default.
+ * This setting disables proof generation and verification, allowing for faster testing and debugging of your zkApp
+ * without the overhead of generating proofs.
+ *
+ * If you want to generate and verify proofs during tests, you can change the constant to `proofsEnabled=true`.
+ * While this process is slower, it provides a more thorough way to validate the integrity of your zkApp by ensuring proofs
+ * are correctly generated and verified for interactions.
+ */
 const proofsEnabled = false;
 
 async function localDeploy(
@@ -420,8 +430,22 @@ describe('Mastermind ZkApp Tests', () => {
       await expect(makeGuessTx()).rejects.toThrowError(expectedErrorMessage);
     }
 
+    it('should not fetch the latest clue if the offChain state is not settled', async () => {
+      const firstClue = await zkapp.offchainState.fields.guessToClueMap.get(
+        Field(1562)
+      );
+
+      expect(firstClue.value).toStrictEqual(Field(-1));
+    });
+
     it('should settle state for the first clue', async () => {
       await settleTx(zkapp, codebreakerKey);
+
+      const firstClue = await zkapp.offchainState.fields.guessToClueMap.get(
+        Field(1562)
+      );
+
+      expect(firstClue.value).not.toStrictEqual(Field(-1));
     });
 
     it('should reject any caller other than the codebreaker', async () => {
@@ -454,8 +478,25 @@ describe('Mastermind ZkApp Tests', () => {
       expect(turnCount).toEqual(4);
     });
 
+    it('should not fetch the latest guess if the offChain state is not settled', async () => {
+      // `roundCount` starts at 0 for the first round
+      const roundCount = UInt8.from(1);
+      const latestGuess = await zkapp.offchainState.fields.roundToGuessMap.get(
+        roundCount
+      );
+
+      expect(latestGuess.isSome.toBoolean()).toBe(false);
+    });
+
     it('should settle state for the second guess', async () => {
       await settleTx(zkapp, codemasterKey);
+
+      const roundCount = UInt8.from(1);
+      const latestGuess = await zkapp.offchainState.fields.roundToGuessMap.get(
+        roundCount
+      );
+
+      expect(latestGuess.isSome.toBoolean()).toBe(true);
     });
 
     it('should reject the codebraker from calling this method out of sequence', async () => {
