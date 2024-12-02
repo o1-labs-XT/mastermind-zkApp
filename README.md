@@ -1,4 +1,4 @@
-# Mina zkApp: Mina Mastermind Level 3
+# Mina zkApp: Mina Mastermind Level 4
 
 ![alt text](./images/mastermind-board.png)
 
@@ -14,22 +14,27 @@
 - [Introduction](#introduction)
 - [Motivation](#motivation)
 
+- [OffChainState](#offchain-state)
+
+  - [How to Use Offchain Storage](#how-to-use-offchain-storage)
+  - [Features](#features)
+  - [Limitations](#limitations)
+  - [Resources](#resources)
+
 - [Mastermind zkApp Structure](#mastermind-zkapp-structure)
 
   - [Mastermind States](#mastermind-states)
     - [maxAttempts](#maxattempts)
     - [turnCount](#turncount)
-    - [isSolved](#issolved)
     - [codemasterId & codebreakerId](#codemasterid--codebreakerid)
     - [solutionHash](#solutionhash)
-    - [historyCommitment](#historycommitment)
-    - [latestGuess](#latestguess-refine-last-guess---key-read)
+    - [offchainStateCommitments](#offchainstatecommitments)
   - [Mastermind Methods](#mastermind-methods)
     - [initGame](#initgame)
     - [createGame](#creategame)
     - [makeGuess](#makeguess)
     - [giveClue](#giveclue)
-  - [Merkle Map Display](#merkle-map-display)
+    - [settle](#settle)
 
 - [How to Build & Test](#how-to-build--test)
   - [How to build](#how-to-build)
@@ -42,7 +47,7 @@
 ## Overview
 
 - The game involves two players: a `Code Master` and a `Code Breaker`.
-- Inspired by [mastermind-noir](https://github.com/vezenovm/mastermind-noir), this version replaces colored pegs with a combination of 4 unique, non-zero digits.
+- Inspired by [mastermind-noir](https://github.com/vezenovm/mastermind-noir), this version replaces colored pegs with a combination of 4 **unique**, **non-zero** digits.
 
 ## Game Rules
 
@@ -69,54 +74,200 @@
     - Result: `1` hit and `1` blow.
       - The hit is `5` in the first position.
       - The blow is `9` in the fourth position.
-      -
 
-- The game continues with alternating guesses and clues until the Code Breaker achieves 4 hits and uncovers the secret combination or fails to do so within the **maximum allowed attempts**.
+- The game continues with alternating guesses and clues until the Code Breaker achieves **4 hits** and uncovers the secret combination or _fails_ to do so within the **maximum allowed attempts**.
 
 # Introduction
 
-This implementation is part of the multi-level series of the Mastermind zkApp game, representing **Level 3**, which introduces the use of the `Indexed Merkle Map` API to store the game history (guesses and clues) off-chain.
+This implementation is part of the multi-level series of the Mastermind zkApp game, representing **Level 4**, which introduces the use of the [OffchainState API](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/feature-overview/offchain-storage) to store the game history (guesses and clues) off-chain.
 
-Building upon the enhancements introduced in [Level 2](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level2), Level 3 offers an upgrade over Level 1 by storing the entire game history off-chain.
+Similar to [Level 3](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level3), Level 4 offers an upgrade over Levels [1](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level1) and [2](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level2) by introducing enhanced scalability through off-chain storage for the entire game history.
 
-Unlike [Level 2](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level2), where the game history is packed and stored directly on-chain, **Level 3** employs an off-chain storage model. The game history is stored off-chain and verified on-chain using cryptographic commitments (Merkle root). This approach significantly enhances scalability by reducing on-chain storage requirements, as only the Merkle Root (commitment) is stored on-chain, while still ensuring the integrity of the off-chain game history through on-chain verification.
-
-This off-chain model offers an optimal balance between privacy, scalability, and verifiable integrity, even though privacy is not the central focus of this particular implementation.
+Building upon [Level 3](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level3) and addressing its limitations, this implementation aims to showcase a scalable off-chain storage solution that resolves concurrency issues and simplifies storage management, eliminating the need for developers to maintain dedicated servers or databases.
 
 ---
 
-For a foundational understanding of the game mechanics and the enhancements introduced in Level 3, please refer to the [Mastermind Level 1 branch](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level1?tab=readme-).
+For a foundational understanding of the game mechanics and the enhancements introduced in Level 4, please refer to the [Mastermind Level 1 branch](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level1?tab=readme-).
 
 # Motivation
 
-In the Level 1 implementation, both the [`unseparatedGuess` and `serializedClue` states](https://github.com/o1-labs-XT/mastermind-zkApp/blob/level1/src/Mastermind.ts#L27-L28) represent only a single guess and clue at any given time.
+- Storing the game history off-chain addresses two key challenges: the need to manually track game history and the limitations imposed by on-chain state size. By leveraging the `OffChainState` API, guesses and clues are stored off-chain, reducing player errors and enabling a trustless gameplay experience.
 
-- While this approach works, it introduces potential challenges as it requires both players to manually track the history of the game.
+- For a more detailed explanation of the motivation behind storing the game history off-chain, refer to the [motivation section](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level3?tab=readme-ov-file#motivation) in the Level 3 documentation.
 
-  - Any mistake or oversight, particularly by the Code Breaker, could compromise their strategy, as they must rely on memory of prior clues to make informed guesses in subsequent turns.
+---
 
-  - Typically, the application frontend (not part of this project) would display the game’s history and progress to both players. However, since no live record is stored on-chain, this setup depends on trust that the frontend will accurately represent the game state without tampering.
+- While the `Indexed Merkle Tree` used in [Level 3](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level3) provided a scalable storage solution, it introduced several challenges:
 
-  - Although players may notice inconsistencies based on their memory of previous moves, depending on frontend integrity undermines the trustless nature of a blockchain-based game.
+  - **Concurrency Issues:** Each state update requires updating the Merkle root on-chain, which can lead to conflicts or failed transactions when multiple updates occur simultaneously. This can lead to race conditions and degrade the user experience.
 
-The Level 3 implementation addresses these limitations by overcoming the zkApp’s 8-state storage constraint, utilizing the `Indexed Merkle Map` API to store the history of guesses and clues off-chain.
+  - **Off-Chain Management Overhead:** The need to manage the Merkle Tree off-chain, whether on a server or in a database, adds complexity for developers. This requires setting up, maintaining, and integrating an external storage solution, which can be time-consuming and error-prone.
 
-This approach introduces a **verifiable off-chain storage architecture**, eliminating the need for manual tracking and reducing the risk of player errors, ensuring a more reliable and trustless gameplay experience.
+  - **State Liveness Concerns:** Merkle Trees ensure data integrity through cryptographic commitments but do not guarantee data availability (liveness). For example, a database administrator could delete the database, effectively deadlocking the zkApp. This reliance on off-chain infrastructure introduces a trust assumption regarding the availability of stored data, which undermines the fully trustless nature of the system.
 
-- Level 2 showcased packing the game history directly on-chain, leveraging the fact that the Mastermind game involves a limited number of small fields that can fit within the zkApp’s on-chain state.
+- The `OffChainState` API is a higher-level abstraction built on top of the `IndexedMerkleMap` and [Actions & Reducer](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/feature-overview/actions-and-reducer). It addresses the following limitations:
 
-- However, some applications may require storing larger volumes of data that cannot be efficiently packed into on-chain states. In such cases, Merkle tree data structures provide a scalable solution for off-chain storage, enabling the handling of larger datasets while ensuring data integrity through on-chain verification.
+  - **Concurrency Resolution:** The `OffChainState` API uses the `Actions & Reducer` pattern to manage concurrent updates effectively. State updates are dispatched as actions and later reconciled during a settlement phase by submitting a `Settlement` proof. This design resolves concurrency issues by processing pending actions in a sequenced manner.
 
-## Notes
+    - **Note:** While this implementation does not address concurrency issues, since the game is inherently interactive and sequential, it serves as an example of how such issues can be addressed in applications where concurrency is a factor.
 
-- Managing the Merkle Tree off-chain, whether in a server or database, is the developer’s responsibility. While this implementation shows how to synchronize off-chain storage with on-chain updates, the full setup of server-side or database management is **not** demonstrated in this example.
-- Off-chain data storage also offers improved privacy compared to on-chain storage. Although this particular implementation does not focus on privacy, it highlights how sensitive information can be kept off-chain, with only cryptographic commitments (such as the Merkle root) stored on-chain.
+  - **State liveness and management:** Off-chain states are stored directly in Mina's archive nodes, ensuring consistent data availability without requiring developers to manage external storage solutions. This approach eliminates concerns about liveness and reduces reliance on centralized infrastructure.
 
-- **Warning**: This implementation does not address **concurrency** issues since the game is interactive and sequential by design. However, developers should consider concurrency when implementing off-chain storage solutions in applications where multiple updates may occur simultaneously.
+    - **Note:** Since data resides in the archive nodes, it is publicly accessible and no longer private. This must be considered when designing applications that involve sensitive data.
+
+# OffChain State
+
+The Offchain State API provides a secure and provable connection between on-chain smart contracts and off-chain data. It structures dispatched actions into a Merkle Tree, ensuring provable commitments with the Merkle root stored on-chain for verification.
+
+Using **Actions and Reducer**, the API manages state changes efficiently: actions dispatch updates, and the reducer finalizes them during settlement. Once settled, all state is fully recoverable directly from actions, eliminating the need for extra events or external data storage. This design enables scalable and trustless state management for zkApps.
+
+## How to Use Offchain Storage
+
+The setup for Offchain State involves two main components:
+
+### 1. Declaring the Offchain State
+
+The Offchain State is declared using an object that defines the state type, supporting **key-value maps** and **single-field storage**.
+
+In this implementation, we define two mappings as follows:
+
+```ts
+{
+  roundToGuessMap: OffchainState.Map(UInt8, Field),
+  guessToClueMap: OffchainState.Map(Field, Field),
+}
+```
+
+- `roundToGuessMap`: Maps a round (`UInt8`) to a guess (`Field`).
+- `guessToClueMap`: Maps a guess (`Field`) to a serialized clue (`Field`).
+
+**Note**: Instead of separating mappings, we could map `roundCount` directly to a composite type (e.g., a struct containing both the guess and the serialized clue). However, this implementation chooses to use two linked mappings for clarity and flexibility.
+
+Single-field storage is also supported. For instance, you could add:
+
+```ts
+roundCount: OffchainState.Field(UInt8);
+```
+
+### 2. Configuring Offchain Storage
+
+The configuration for Offchain Storage is defined with an object that includes **optional** parameters:
+
+- `logTotalCapacity`:
+
+  - Specifies the base-2 logarithm of the total capacity for offchain state.
+  - Example: For 1 million entries, set `logTotalCapacity` to 20 (`2^20 = ~1M`).
+  - **Default**: `30` (~1 billion entries).
+
+- `maxActionsPerUpdate`:
+
+  - Sets the maximum number of actions (e.g., `.update()` or `.overwrite()`) that can be performed in a single smart contract method.
+  - **Default**: `4`.
+
+- `maxActionsPerProof`:
+  - Defines the number of actions included in a proof.
+  - **Default**: `22`.
+
+**Note:** You can display the `actions` for each method by using `await zkapp.analyzeMethods()`. This provides insights into the `maxActionsPerUpdate` required for each method.
+
+- **Example:** Displaying filtered logs showing only the method name, actions, and rows can be achieved with the following command:
+
+  ```ts
+  console.log(
+    Object.entries(await MastermindZkApp.analyzeMethods()).map(
+      ([method, { actions, rows }]) => ({ method, actions, rows })
+    )
+  );
+  ```
+
+- The output will look like this:
+
+  ![alt text](./images/analyze-methods.png)
+
+### Creating a StateProof
+
+The `StateProof` type is used to finalize state changes via a [recursive reducer](https://medium.com/zknoid/mina-action-reducers-guide-writing-our-own-reducers-81802287776f):
+
+```ts
+class StateProof extends offchainState.Proof {}
+```
+
+### Declaring Offchain State Commitments and Initializing Offchain State
+
+Declare the [offchainStateCommitments](#offchainstatecommitments) and initialize an offchain state instance for your contract.
+This returns a memoized instance if one already exists for the contract.
+
+Example:
+
+```ts
+const offchainStateInstance = offchainState.init();
+
+class MyContract extends SmartContract {
+  @state(OffchainStateCommitments) offchainStateCommitments = State(
+    OffchainStateCommitments.empty()
+  );
+
+  offchainState = offchainStateInstance;
+
+  @method async settle(proof: StateProof) {
+    await this.offchainState.settle(proof);
+  }
+}
+```
+
+### Assigning the Contract Instance to Offchain Storage
+
+To interact with your zkApp using Offchain Storage, assign the smart contract instance to the offchain storage. This also compiles the recursive Offchain zkProgram in the background.
+
+Example:
+
+```ts
+const zkapp = new MyContract(contractAddress);
+zkapp.offchainState.setContractInstance(zkapp);
+
+// Compile Offchain state program
+await offchainState.compile();
+
+// Compile smart contract
+await MyContract.compile();
+```
+
+### Calling the Settle Method
+
+For details on calling the settle method, refer to the [settle method documentation](#settle).
+
+## Features
+
+- All information required to use offchain state is derived directly from actions, eliminating the need for extra events or external data storage.
+- No practical limits exist on the number of state fields and maps that can be used.
+- Field and map values support provable types of up to ~100 field elements (approximately the size of an action). Map keys are not size-limited since they do not need to be part of the action.
+
+## Limitations
+
+- **Lagging State:** State is only available for retrieval (`.get()`) after it has been settled.
+- **Scalability Issues:** The Offchain State API has limited scalability due to high latency. Currently, the Merkle tree is reconstructed on the fly by each user from fetched actions, which is inefficient for large-scale applications.
+- **Archive Node Bottleneck:** The slowness of the archive node is a significant bottleneck, impacting the ability to settle and access state efficiently.
+
+**Note:** For more details on the limitations of the Offchain State API, refer to the [Offchain State Showcase RFC](https://github.com/o1-labs/rfcs/blob/76045f062f87c4ab98c95ad7bed3bddb0cd565ed/00xx-offchain-state-showcase.md#drawbacks).
+
+## Resources
+
+- [Mina Docs: Offchain Storage Documentation](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/feature-overview/offchain-storage)
+
+- [XT Name Service Example](https://github.com/o1-labs-XT/name-service-example/tree/main)
+
+- [Offchain State Showcase RFC](https://github.com/o1-labs/rfcs/blob/76045f062f87c4ab98c95ad7bed3bddb0cd565ed/00xx-offchain-state-showcase.md#drawbacks)
+
+- [ZkNoid Blog: Mina Action & Reducers Guide: Writing our own reducers](https://medium.com/zknoid/mina-action-reducers-guide-writing-our-own-reducers-81802287776f)
+
+- [o1js ExampleContract](https://github.com/o1-labs/o1js/blob/main/src/lib/mina/actions/offchain-contract-tests/ExampleContract.ts)
+
+- [Offchain State Instance PR](https://github.com/o1-labs/o1js/pull/1834):
+  Introduced updates to the Offchain State API initialization process, released in `o1js` version `1.9.1`.
 
 # Mastermind zkApp Structure
 
-Following the game rules, the [MastermindZkApp](./src/Mastermind.ts) should be deployed:
+Following the game rules, the [MastermindZkApp](./src/Mastermind.ts) should be deployed as follows:
 
 - The zkApp is initialized by calling the `initGame` method, with `maxAttempts` as the method parameter to set an upper limit.
 
@@ -124,19 +275,21 @@ Following the game rules, the [MastermindZkApp](./src/Mastermind.ts) should be d
 
 - The Code Breaker then makes a guess by calling the `makeGuess` method with a valid combination as an argument.
 
-- The Code Master submits the solution again to be checked against the previous guess and provides a clue.
+- The offchain state needs to be settled by calling the `settle` method. This ensures the guess is accessible to the `giveClue` method, where it can be mapped to the corresponding clue.
 
-- The Code Breaker should analyze the given clue and make another meaningful guess.
+- The Code Master calls the `giveClue` method to provide a clue for the latest guess by submitting their secret combination and a salt value. This method ensures the integrity of the secret combination and updates the offchain state with a clue corresponding to the most recent guess.
 
-- The game continues by alternating between `makeGuess` and `giveClue` methods until the Code Breaker either uncovers the secret combination or fails by exceeding the allowed `maxAttempts`, concluding the game.
+- The offchain state must again be settled to allow the Code Breaker to access the provided clue before submitting another guess.
 
-Now, let's explore the states and methods of our Mastermind zkApp.
+- The Code Breaker analyzes the clue and makes another meaningful guess.
+
+- The game alternates between `makeGuess` and `giveClue` methods until the Code Breaker either discovers the secret combination or exhausts the allowed `maxAttempts`, concluding the game.
+
+Now, let's explore the states and methods of the Mastermind zkApp.
 
 ## Mastermind States
 
-The Mastermind zkApp utilizes 7 states, staying within the maximum storage capacity to ensure smooth functionality.
-
-Let’s examine each state’s purpose and the smart workarounds used to optimize on-chain storage and reduce state usage.
+The Mastermind zkApp utilizes 8 states, staying within the maximum storage capacity.
 
 ### maxAttempts
 
@@ -146,7 +299,14 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 ### turnCount
 
-- This state is essential for tracking game progress. It helps determine when the maximum number of attempts has been reached and also identifies whose turn it is to make a move. If the `turnCount` is even, it's the Code Master's turn to give a clue; if it's odd, it's the Code Breaker's turn to make a guess.
+- The `turnCount` state is crucial for tracking the progress of the game. It determines when the maximum number of attempts has been reached and identifies whose turn it is to make a move. An _even_ `turnCount` indicates it is the Code Master's turn to provide a clue, while an _odd_ `turnCount` indicates it is the Code Breaker's turn to make a guess.
+
+- In previous levels, a `Bool` state called `isSolved` was used to indicate whether the Code Breaker had successfully uncovered the solution, marking the end of the game. This state signaled completion once the Code Breaker achieved `4` hits within the allowed `maxAttempts`.
+
+- The `isSolved` state, which could either be `True` or `False`, is replaced in this implementation with a numeric state by assigning a distinctive value when the game is solved:
+  - Here, the value `255` is used to indicate the game's conclusion. This is a unique value for `turnCount`, as it remains well above the maximum possible `turnCount` for the allowed `maxAttempts` (e.g., `15` attempts in this implementation).
+  - When `turnCount` equals `255`, it signifies that the Code Breaker has successfully uncovered the secret combination, concluding the game.
+- This technique simplifies the design by removing the need for a separate `isSolved` state, effectively saving on on-chain storage for the zkApp.
 
 ### codemasterId & codebreakerId
 
@@ -168,36 +328,21 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 - **Note:** Unlike player IDs, where hashing is used for data compression, here it is used to preserve the privacy of the on-chain state and to ensure the integrity of the values entered privately with each method call.
 
-### historyCommitment
+### offchainStateCommitments
 
-- This state represents the Merkle root (commitment) of the Merkle Map, where the guess is stored as the key and the corresponding clue is serialized (or packed) when stored as the value.
+- The `offchainStateCommitments` state is a struct consisting of **three fields** that define commitments that track the current state of an offchain Merkle tree built from dispatched actions.
 
-- It is used to verify the integrity of the game history stored off-chain and to synchronize changes made during on-chain updates in the zkApp.
+- The `offchainStateCommitments` fields include:
+  - **root**: The root of the current Merkle tree.
+  - **length**: The number of elements in the current Merkle tree.
+  - **actionState**: A hash representing the sequence of actions applied to construct the current Merkle tree.
 
-- Note that the guess (key) is initially inserted with an empty value (`Field(0)`), and then updated with the corresponding clue when the [giveClue](#giveclue) method is called.
+The `OffChainState` API is a high-level abstraction over an `IndexedMerkleMap`. In this context:
 
-  - This process relies on the [latestGuess](#latestguess) state to reference the last guess, as it is not possible to directly track the last inserted key in the Merkle Map.
+- The `root` and `length` components provide commitments to the structure of the Indexed Merkle Map.
+- The `actionState` component serves as a commitment to the history of dispatched actions, as described in [Actions & Reducer](https://docs.minaprotocol.com/zkapps/writing-a-zkapp/feature-overview/actions-and-reducer).
 
-- For more details, refer to the [makeGuess](#makeguess) and [giveClue](#giveclue) methods to understand how this commitment is used to verify the integrity of off-chain data and undergo updates after successful execution.
-
-### latestGuess
-
-- The `latestGuess` state holds the most recent guess submitted by the Code Breaker and is essential for updating that guess with the corresponding clue from the Code Master.
-
-- This state ensures a sequential response to the last guess, as the Merkle Map does not inherently track the order of inserted keys (guesses).
-
-- It also plays a crucial role in synchronizing the off-chain history Merkle Map after the execution of the [`makeGuess`](#makeguess) method.
-
-- **Note:** A guess is represented as a single `Field` value encoded in decimal format. For example:
-
-  - If the guess is `4 5 2 3`, it is encoded as the `Field` value `4523`.
-  - The Code Master will later parse this value into individual digits to compare against the secret solution.
-
-### isSolved
-
-- This state is a `Bool` that indicates whether the Code Breaker has successfully uncovered the solution.
-
-- It is crucial for determining the end of the game, signaling completion once the Code Breaker achieves `4` hits within the allowed `maxAttempts`.
+**Note:** The offchain state commitments are updated only after the settlement process, as described in the [settle method](#settle).
 
 ## Mastermind Methods
 
@@ -254,7 +399,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
   - The caller's `PublicKey` is hashed and stored on-chain as `codemasterId` once the combination is validated.
 
-  - Finally, the `turnCount` is incremented, signaling that the game is ready for the code breaker to `makeGuess`.
+  - Finally, the `turnCount` is incremented, signaling that the game is ready for the code breaker to make the **first** guess.
   - The first user to call this method with valid inputs will be designated as the code master.
 
 - **Note:** For simplicity, security checks in this method have been abstracted. For more details, please refer to the [Security Considerations](#safeguarding-private-inputs-in-zk-snark-circuits).
@@ -267,7 +412,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 - To maintain the progression of the game, there are several conditions that restrict when this method can be called:
 
-  - If the game `isSolved`, this method can be called, but it will throw an error.
+  - If the game is already solved (indicated by `turnCount` being set to `255`), this method can be called, but it will throw an error.
 
   - If the Code Breaker exceeds the `maxAttempts`, this method can be called, but it will throw an error.
 
@@ -280,35 +425,34 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 - After all the preceding checks pass, the Code Breaker's guess is validated, and several key operations take place before any state updates:
 
-  - The on-chain [historyCommitment](#historycommitment) is fetched and asserted to match the root from the `history` input of this method. This ensures that the off-chain Merkle Map submitted by the Code Breaker is in sync with the commitment stored on-chain.
-  - **Note:** It's crucial to initialize the [historyCommitment](#historycommitment) with the empty root of the Merkle Tree (height dependent). This initialization allows the first guess to be submitted by validating the empty Merkle Tree.
-  - Once the Merkle Map's integrity is verified, the guess is inserted as a new key in the history Merkle Map, and the new root is set as the updated [historyCommitment](#historycommitment).
-    - This step ensures that the history Merkle Map is only updated within the zkApp, enforcing synchronization between off-chain data and on-chain verification.
-    - **Note:** `history = history.clone()` is used [here](./src/Mastermind.ts#L164) to avoid errors when modifying the input Merkle Map directly. Modifying inputs within circuits can cause errors, and cloning the history prevents this issue.
+  - The `roundCount` is calculated to track the game's progress, where each round consists of a guess and its corresponding clue. This value ensures that the mapping of guesses to rounds is sequential and reflects the game's progression.
 
-- The Merkle Map inherently disallows duplicate keys, thus preventing the Code Breaker from making a wrong move by entering the same guess.
+  - The `roundToGuessMap` is then updated, assigning the `roundCount` as the key and the validated guess as the value. Since this is the first time this guess is being added for the current round, the `from` value is set to `undefined`, and the `to` value is the Code Breaker's validated guess. This mapping keeps a record of guesses in the order they are made.
 
-  - This advantage of using the Merkle Map API simplifies the prevention of duplicate guesses. In Level 2, nullifying a repeated guess would be more complicated, as it would require scanning the entire history of guesses to check for duplicates.
+  - Next, the `guessToClueMap` is updated with the validated guess as the key and a placeholder clue (set to the maximum field value) as the value. This prepares the mapping for the Code Master to later provide the actual clue corresponding to the guess.
 
-- Finally, the submitted guess is stored on-chain, with the [latestGuess](#latestguess) state being updated to the current guess.
-- The `turnCount` is then incremented, signaling the Code Master to read the guess and provide a clue.
+  - **Notes:**
 
-![alt text](./images//makeGuess-data-model.png)
+    - The mapping updates are dispatched as actions and remain pending. They can only be accessed, either on-chain or off-chain, after they are finalized by calling the [settle method](#settle).
 
-- **Notes:**
+    - The OffChainState model, leveraging the Indexed Merkle Map, prevents duplicate guesses by disallowing duplicate keys. This eliminates the need for complex logic, as would be required in Level 2, to scan and handle duplicate entries, ensuring a more efficient process.
 
-  - To synchronize the off-chain history Merkle Map, the `latestGuess` state should be fetched after the successful execution of this method and inserted into the local Merkle Map to keep the history in sync.
+- Finally, the `turnCount` is incremented, allowing the Code Master to read the guess and provide a clue.
 
-    - This underscores the importance of `latestGuess`, as it plays a crucial role in synchronizing off-chain storage. Since the guess is a private method input, `latestGuess` is used to update the off-chain storage in this context.
+- **Note:** The Code Breaker cannot dispatch multiple guesses, as the method call is restricted by the parity of the `turnCount`. While the design of the offchain state supports dispatching multiple actions and reducing them later, method access is intentionally limited to align with the game logic. It is the developer's responsibility to enforce such restrictions in similar scenarios.
 
-  - Before submitting the next guess, the Code Breaker should:
+![alt text](./images/makeGuess-data-model.png)
 
-    - Read the `latestGuess` state off-chain.
-    - Retrieve the corresponding serialized clue from the Merkle Map using the `latestGuess` as the key.
-    - Deserialize the clue to interpret the feedback.
-    - Adjust their strategy based on the clue received.
+Before submitting the next guess, the Code Breaker should follow these steps:
 
-    This process helps the Code Breaker understand the outcome of their previous guess and make informed decisions for subsequent moves.
+- Settle the state to access the outcome of their previous guess.
+- Calculate the latest `roundCount` from the on-chain `turnCount`.
+- Retrieve their most recent guess from the `roundToGuessMap`.
+- Fetch the corresponding serialized clue from the zkApp's `OffChainState` `guessToClueMap` using the `latestGuess` as the key.
+- Deserialize the clue to interpret the feedback.
+- Adjust their strategy based on the clue received.
+
+This process allows the Code Breaker to understand the outcome of their previous guess and make informed decisions for future moves.
 
 ### giveClue
 
@@ -316,12 +460,14 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
   - Only the registered Code Master can call this method.
   - The method enforces the correct sequence by ensuring that the `turnCount` is **non-zero** (to avoid collision with the `createGame` call) and **even**.
-  - If the game `isSolved`, this method is blocked.
-  - If the Code Breaker exceeds the `maxAttempts`, this method cannot be executed.
+  - If the game is already solved (indicated by `turnCount` being set to `255`), this method can be called, but it will throw an error.
+  - If the Code Breaker exceeds the `maxAttempts`, this method can be called, but it will throw an error.
 
-- After the initial checks pass, the plain `unseparatedSecretCombination` input is separated into 4 digits, hashed with the salt, and asserted against the `solutionHash` state to verify the integrity of the secret combination.
+- After the initial checks pass, the `unseparatedSecretCombination` input is separated into 4 digits, hashed with the salt, and asserted against the `solutionHash` state to verify the integrity of the secret combination.
 
-- The [latestGuess](#latestguess) from the previous turn is fetched, split into individual digits, and compared against the secret combination. Based on this comparison, a clue is generated.
+- The `roundCount` is calculated from `turnCount` and used as a key to fetch the most recent guess from the offchainState's `roundToGuessMap`.
+
+- The latest guess is then split into individual digits and compared with the secret combination. Based on this comparison, a clue is generated.
 
   - Each clue consists of four digits, where each digit can be `0`, `1`, or `2`, representing feedback from the Code Master:
 
@@ -329,42 +475,73 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
     - `1`: Correct digit but wrong position.
     - `2`: Correct digit and correct position.
 
-  - These digits are combined and stored as an 8-bit `Field` value in decimal format. For example:
+  - These digits are combined and stored as an **8-bit** `Field` value in decimal format. For example:
 
-  - If the clue digits are `1 1 1 1`, they are combined to form the number `1111`, which is stored as a `Field` value of `15` in decimal.
+    - If the clue digits are `1 1 1 1`, they are combined to form the number `1111`, which is stored as a `Field` derived from the bits `01 01 01 01`, equivalent to the decimal value `85`.
 
-- The on-chain [historyCommitment](#historycommitment) is fetched and validated to match the root provided in the `history` input of this method.
-- The value of the key corresponding to the `latestGuess` in the Merkle Tree is then updated with the serialized clue, and the new root is set as the updated [historyCommitment](#historycommitment).
+- The value of the key corresponding to the `latestGuess` in the `guessToClueMap` is then updated with the serialized clue
 
-- If the clue results in 4 hits (e.g., `2 2 2 2`), the game is marked as **solved**, and the `isSolved` state is updated to `Bool(true)`.
+  - The `from` value is the initial placeholder clue set by the `makeGuess` method.
+  - The `to` value is the serialized clue corresponding to the latest guess.
 
-- Finally, the `turnCount` is incremented, making it odd and signaling the Code Breaker's turn to read the clue, interpret it, and make a meaningful guess—unless the game is already solved or the maximum number of attempts has been reached.
+- If the clue results in 4 hits (e.g., `2 2 2 2`), the game is marked as **solved**, and the `turnCount` state is set to `255`.
+
+- Else, the `turnCount` is incremented, making it odd and signaling the Code Breaker's turn to read the clue, interpret it, and make a meaningful guess; unless the game is already solved or the maximum number of attempts has been reached.
 
 ![alt text](./images//giveClue-data-model.png)
 
-- **Note:** Unlike in the `makeGuess` method, the off-chain history Merkle Map is overwritten rather than synchronized.
+### settle
 
-  - The history Merkle Map is provided as an input and returned as a method output after updating it with the latest guess and corresponding clue.
+- There are no restrictions on who can call the `settle` method.
 
-  - Upon successful execution of this method, the off-chain history is replaced with the updated Merkle Map, effectively overwriting it.
+  - **Note:** This flexibility allows certain applications to incentivize users to settle the state as part of their functionality.
 
-  - **Efficiency Consideration:** Overwriting the Merkle Map off-chain after each successful on-chain transaction may be inefficient, especially for large datasets.
-
-  - **Technical Insight:** This solution is feasible because the Merkle Map API can be utilized within provable methods. If we were to synchronize the off-chain history using traditional methods, we would need to add a new state variable for the clue to maintain synchronization. This is because the only public update is the history root, which doesn't reveal any information about the clue since the `secretCombination` remains private.
+- The `settle` method ensures the offchain state is reconciled, making all published changes verifiable and accessible.
 
 ---
 
-## Merkle Map Display
+- The settlement process involves the following steps:
 
-While the Merkle Map stores key/value pairs of guesses and corresponding clues, it's important to display the order of these entries to gain insight into the game's progress.
+1. **Generate a State Proof**:  
+   A `StateProof` is required to settle the offchain state. This proof updates the commitments to the offchain state, including the Merkle root and action state.
 
-Fortunately, the `Indexed` Merkle Map API allows us to display this order along with all keys and values by accessing the indexes. This can be done as shown below:
+   It can be generated using the following code:
 
-```ts
-console.log('Game History: ', history.data.get().sortedLeaves);
-```
+   ```ts
+   const proof = await zkapp.offchainState.createSettlementProof();
+   ```
 
-![alt text](./images/history-sortedLeaves.png)
+2. **Invoke the settle Method**:
+
+   Once the state proof is generated, it is passed to the `settle` method. Upon invocation, the method:
+
+   - Automatically retrieves all pending actions (state changes).
+   - Resolves these actions using a recursive reducer, updating the offchain commitments.
+
+3. **Access Finalized State**:
+
+   After the settlement process completes, the published state changes are finalized. These updates can then be accessed both on-chain through zkApp methods and off-chain.
+
+4. **Example Settlement Process**:
+
+   The entire settlement process can be implemented as follows:
+
+   ```ts
+   const stateProof = await zkapp.offchainState.createSettlementProof();
+
+   await Mina.transaction(signerKey.toPublicKey(), () =>
+     zkapp.settle(stateProof)
+   )
+     .sign([signerKey])
+     .prove()
+     .send();
+   ```
+
+The figure below illustrates an example of settlement after calling the [makeGuess](#makeGuess) method for the first time. It shows that the [offchainStateCommitments](#offchainstatecommitments) are only updated once the settlement process is completed:
+
+![Settlement Updates](./images/settlement-updates.png)
+
+---
 
 # How to Build & Test
 
