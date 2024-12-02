@@ -98,7 +98,7 @@ class MastermindZkApp extends SmartContract {
   }
 
   //! Warning: The Code Breaker must interpret the most recent clue from the Code Master before calling this method.
-  //! The process involves retrieving the latest clue from the history tree, unpacking it, and using it to guide the next guess.
+  //! The process involves retrieving the latest clue from the settled offchain state, unpacking it, and using it to guide the next guess.
   @method async makeGuess(guess: Field) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
     isInitialized.assertTrue('The game has not been initialized yet!');
@@ -173,20 +173,6 @@ class MastermindZkApp extends SmartContract {
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
-  }
-
-  /**
-   * Settles the offchain state by providing a storage proof to the this method.
-   * Automatically retrieves and resolves all pending state changes using a recursive reducer
-   * before passing the proof to the smart contract's `settle()` method.
-   *
-   * Note: The `StateProof` should be generated for the transaction calling this method
-   * using the following:
-   *
-   * `const proof = await zkapp.offchainState.createSettlementProof();`
-   */
-  @method async settle(proof: StateProof) {
-    await this.offchainState.settle(proof);
   }
 
   @method async giveClue(unseparatedSecretCombination: Field, salt: Field) {
@@ -270,5 +256,19 @@ class MastermindZkApp extends SmartContract {
 
     // Update the on-chain turnCount
     this.turnCount.set(UInt8.Unsafe.fromField(updatedTurnCount));
+  }
+
+  /**
+   * Settles the offchain state by providing a storage proof to this method.
+   * This methods automatically retrieves and resolves all pending state changes using a recursive reducer
+   * before passing the proof to the smart contract's `settle()` method.
+   *
+   * Note: The `StateProof` should be generated for the transaction calling this method
+   * using the following:
+   *
+   * `const proof = await zkapp.offchainState.createSettlementProof();`
+   */
+  @method async settle(proof: StateProof) {
+    await this.offchainState.settle(proof);
   }
 }
