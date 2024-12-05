@@ -12,18 +12,14 @@
  * - Validation of input integrity, including checks on value ranges, sizes, and the correctness of hashes and salts.
  * - Accurate updates to the on-chain state following method executions.
  * - Proper validation of constraints, ensuring assertions are correctly enforced and fail when necessary.
- * - Validation of state updates before and after the settlement of the off-chain state.
  */
 
-import { MastermindZkApp, offchainState } from './Mastermind';
+import { MastermindZkApp } from './Mastermind';
 import { Field, Mina, PrivateKey, PublicKey, AccountUpdate, UInt8 } from 'o1js';
 
-import {
-  deserializeClue,
-  compressCombinationDigits,
-  getClueFromGuess,
-  separateCombinationDigits,
-} from './utils';
+import { SolutionProgram, GuessProgram, ClueProgram } from './zkPrograms';
+
+import { deserializeClue, compressCombinationDigits } from './utils';
 
 /**
  * Note: These tests are executed with `proofsEnabled=false` by default.
@@ -33,6 +29,9 @@ import {
  * If you want to generate and verify proofs during tests, you can change the constant to `proofsEnabled=true`.
  * While this process is slower, it provides a more thorough way to validate the integrity of your zkApp by ensuring proofs
  * are correctly generated and verified for interactions.
+ *
+ * Note: Tests with proofsEnabled = false take approximately 8 minutes to complete.
+ *       Tests with proofsEnabled = true take approximately 17 minutes to complete.
  */
 const proofsEnabled = false;
 
@@ -67,14 +66,6 @@ async function initializeGame(
   await initTx.sign([deployerKey]).send();
 }
 
-async function settleTx(zkapp: MastermindZkApp, signerKey: PrivateKey) {
-  const proof = await zkapp.offchainState.createSettlementProof();
-  await Mina.transaction(signerKey.toPublicKey(), () => zkapp.settle(proof))
-    .sign([signerKey])
-    .prove()
-    .send();
-}
-
 describe('Mastermind ZkApp Tests', () => {
   let codemasterKey: PrivateKey,
     codemasterPubKey: PublicKey,
@@ -87,6 +78,17 @@ describe('Mastermind ZkApp Tests', () => {
     zkapp: MastermindZkApp;
 
   beforeAll(async () => {
+    // Note: Always compile your ZkPrograms before your ZkApp because your ZkApp depends on them.
+    console.time('Compiling ZkPrograms...');
+    await SolutionProgram.compile();
+    await GuessProgram.compile();
+    await ClueProgram.compile();
+    console.timeEnd('Compiling ZkPrograms...');
+
+    console.time('Compiling MastermindZkApp...');
+    await MastermindZkApp.compile();
+    console.timeEnd('Compiling MastermindZkApp...');
+
     // Set up the Mina local blockchain
     const Local = await Mina.LocalBlockchain({ proofsEnabled });
     Mina.setActiveInstance(Local);
@@ -107,11 +109,6 @@ describe('Mastermind ZkApp Tests', () => {
     zkappPrivateKey = PrivateKey.random();
     zkappAddress = zkappPrivateKey.toPublicKey();
     zkapp = new MastermindZkApp(zkappAddress);
-
-    zkapp.offchainState.setContractInstance(zkapp);
-
-    await offchainState.compile();
-    await MastermindZkApp.compile();
   });
 
   describe('Deploy and initialize Mastermind zkApp', () => {
@@ -121,8 +118,11 @@ describe('Mastermind ZkApp Tests', () => {
 
     it('Should reject calling `createGame` method before `initGame`', async () => {
       const createGameTx = async () => {
+        const { proof: validSecretProof } =
+          await SolutionProgram.validateSecret(Field(1234), codemasterSalt);
+
         const tx = await Mina.transaction(codemasterPubKey, async () => {
-          await zkapp.createGame(Field(1234), codemasterSalt);
+          await zkapp.createGame(validSecretProof);
         });
 
         await tx.prove();
@@ -135,8 +135,14 @@ describe('Mastermind ZkApp Tests', () => {
 
     it('Should reject calling `giveClue` method before `initGame`', async () => {
       const giveClueTx = async () => {
+        const { proof: validClueProof } = await ClueProgram.getClueFromGuess(
+          Field(2345), // random valid guess
+          Field(1234), // random valid secret
+          codemasterSalt
+        );
+
         const tx = await Mina.transaction(codemasterPubKey, async () => {
-          await zkapp.giveClue(Field(1234), codemasterSalt);
+          await zkapp.giveClue(validClueProof);
         });
 
         await tx.prove();
@@ -198,8 +204,14 @@ describe('Mastermind ZkApp Tests', () => {
       );
 
       const createGameTx = async () => {
+        const { proof: validSecretProof } =
+          await SolutionProgram.validateSecret(
+            secretCombination,
+            codemasterSalt
+          );
+
         const tx = await Mina.transaction(codemasterPubKey, async () => {
-          await zkapp.createGame(secretCombination, codemasterSalt);
+          await zkapp.createGame(validSecretProof);
         });
 
         await tx.prove();
@@ -221,19 +233,24 @@ describe('Mastermind ZkApp Tests', () => {
       await testInvalidCreateGame([5, 0, 4, 6], expectedErrorMessage);
     });
 
-    it('should reject codemaster with invalid secret combination: third digit is not unique', () => {
+    it('should reject codemaster with invalid secret combination: third digit is not unique', async () => {
       const expectedErrorMessage = 'Combination digit 3 is not unique!';
-      testInvalidCreateGame([2, 3, 2, 9], expectedErrorMessage);
+      await testInvalidCreateGame([2, 3, 2, 9], expectedErrorMessage);
     });
 
     // secretCombination = [1, 2, 3, 4]
     it('should create a game and update codemasterId & turnCount on-chain', async () => {
       const secretCombination = Field(1234);
 
+      const { proof: validSecretProof } = await SolutionProgram.validateSecret(
+        secretCombination,
+        codemasterSalt
+      );
+
       const createGameTx = await Mina.transaction(
         codemasterKey.toPublicKey(),
         async () => {
-          zkapp.createGame(secretCombination, codemasterSalt);
+          await zkapp.createGame(validSecretProof);
         }
       );
 
@@ -250,7 +267,7 @@ describe('Mastermind ZkApp Tests', () => {
 
     it('should prevent players from re-creating a game: current codemaster included', async () => {
       const expectedErrorMessage = 'A mastermind game is already created!';
-      testInvalidCreateGame([2, 3, 4, 5], expectedErrorMessage);
+      await testInvalidCreateGame([2, 3, 4, 5], expectedErrorMessage);
     });
   });
 
@@ -262,10 +279,14 @@ describe('Mastermind ZkApp Tests', () => {
       const unseparatedGuess = compressCombinationDigits(guess.map(Field));
 
       const makeGuessTx = async () => {
+        const { proof: validGuessProof } = await GuessProgram.validateGuess(
+          unseparatedGuess
+        );
+
         const tx = await Mina.transaction(
           codebreakerKey.toPublicKey(),
           async () => {
-            await zkapp.makeGuess(unseparatedGuess);
+            await zkapp.makeGuess(validGuessProof);
           }
         );
 
@@ -295,10 +316,14 @@ describe('Mastermind ZkApp Tests', () => {
       const firstGuess = [1, 5, 6, 2];
       const unseparatedGuess = compressCombinationDigits(firstGuess.map(Field));
 
+      const { proof: validGuessProof } = await GuessProgram.validateGuess(
+        unseparatedGuess
+      );
+
       const makeGuessTx = await Mina.transaction(
         codebreakerPubKey,
         async () => {
-          await zkapp.makeGuess(unseparatedGuess);
+          await zkapp.makeGuess(validGuessProof);
         }
       );
 
@@ -316,7 +341,7 @@ describe('Mastermind ZkApp Tests', () => {
     it('should reject the codebraker from calling this method if the clue from previous turn is not reported yet', async () => {
       const expectedErrorMessage =
         'Please wait for the codemaster to give you a clue!';
-      await testInvalidGuess([1, 2, 2, 9], expectedErrorMessage);
+      await testInvalidGuess([1, 2, 3, 9], expectedErrorMessage);
     });
   });
 
@@ -325,15 +350,23 @@ describe('Mastermind ZkApp Tests', () => {
       combination: number[],
       expectedErrorMessage?: string,
       signerKey = codemasterKey,
-      signerSalt = codemasterSalt
+      signerSalt = codemasterSalt,
+      latestGuess?: Field
     ) {
       const secretCombination = compressCombinationDigits(
         combination.map(Field)
       );
 
+      latestGuess ??= zkapp.unseparatedGuess.get();
+      const { proof: validClueProof } = await ClueProgram.getClueFromGuess(
+        latestGuess,
+        secretCombination,
+        signerSalt
+      );
+
       const giveClueTx = async () => {
         const tx = await Mina.transaction(signerKey.toPublicKey(), async () => {
-          await zkapp.giveClue(secretCombination, signerSalt);
+          await zkapp.giveClue(validClueProof);
         });
 
         await tx.prove();
@@ -342,10 +375,6 @@ describe('Mastermind ZkApp Tests', () => {
 
       await expect(giveClueTx()).rejects.toThrowError(expectedErrorMessage);
     }
-
-    it('should settle state for the first guess', async () => {
-      await settleTx(zkapp, codebreakerKey);
-    });
 
     it('should reject any caller other than the codemaster', async () => {
       const expectedErrorMessage =
@@ -365,6 +394,20 @@ describe('Mastermind ZkApp Tests', () => {
       );
     });
 
+    it('should reject codemaster using a non-compliant guess', async () => {
+      const falseGuess = Field(8139); // Non-compliant guess
+      const expectedErrorMessage =
+        'The provided guess in the proof does not match the committed on-chain value!';
+
+      await testInvalidClue(
+        [1, 2, 3, 4],
+        expectedErrorMessage,
+        codemasterKey,
+        codemasterSalt,
+        falseGuess
+      );
+    });
+
     it('should reject codemaster with non-compliant secret combination', async () => {
       const expectedErrorMessage =
         'The secret combination is not compliant with the stored hash on-chain!';
@@ -372,32 +415,35 @@ describe('Mastermind ZkApp Tests', () => {
     });
 
     it('should accept codemaster clue and update on-chain state', async () => {
+      const latestGuess = zkapp.unseparatedGuess.get();
       const solution = [1, 2, 3, 4];
       const unseparatedSolution = compressCombinationDigits(
         solution.map(Field)
       );
 
+      const { proof: validClueProof } = await ClueProgram.getClueFromGuess(
+        latestGuess,
+        unseparatedSolution,
+        codemasterSalt
+      );
+
       const giveClueTx = await Mina.transaction(
         codemasterKey.toPublicKey(),
         async () => {
-          await zkapp.giveClue(unseparatedSolution, codemasterSalt);
+          zkapp.giveClue(validClueProof);
         }
       );
 
       await giveClueTx.prove();
       await giveClueTx.sign([codemasterKey]).send();
 
-      const latestGuess = (
-        await zkapp.offchainState.fields.roundToGuessMap.get(
-          zkapp.turnCount.get().sub(3).div(2)
-        )
-      ).value;
-      const clue = getClueFromGuess(
-        separateCombinationDigits(latestGuess),
-        solution.map(Field)
-      );
-
+      // Test that the on-chain states are updated: serializedClue, isSolved, and turnCount
+      const serializedClue = zkapp.serializedClue.get();
+      const clue = deserializeClue(serializedClue);
       expect(clue).toEqual([2, 0, 0, 1].map(Field));
+
+      const isSolved = zkapp.isSolved.get().toBoolean();
+      expect(isSolved).toEqual(false);
 
       const turnCount = zkapp.turnCount.get().toNumber();
       expect(turnCount).toEqual(3);
@@ -418,9 +464,13 @@ describe('Mastermind ZkApp Tests', () => {
     ) {
       const unseparatedGuess = compressCombinationDigits(guess.map(Field));
 
+      const { proof: validGuessProof } = await GuessProgram.validateGuess(
+        unseparatedGuess
+      );
+
       const makeGuessTx = async () => {
         const tx = await Mina.transaction(signerKey.toPublicKey(), async () => {
-          await zkapp.makeGuess(unseparatedGuess);
+          await zkapp.makeGuess(validGuessProof);
         });
 
         await tx.prove();
@@ -429,24 +479,6 @@ describe('Mastermind ZkApp Tests', () => {
 
       await expect(makeGuessTx()).rejects.toThrowError(expectedErrorMessage);
     }
-
-    it('should not fetch the latest clue if the offChain state is not settled', async () => {
-      const firstClue = await zkapp.offchainState.fields.guessToClueMap.get(
-        Field(1562)
-      );
-
-      expect(firstClue.value).toStrictEqual(Field(-1));
-    });
-
-    it('should settle state for the first clue', async () => {
-      await settleTx(zkapp, codebreakerKey);
-
-      const firstClue = await zkapp.offchainState.fields.guessToClueMap.get(
-        Field(1562)
-      );
-
-      expect(firstClue.value).not.toStrictEqual(Field(-1));
-    });
 
     it('should reject any caller other than the codebreaker', async () => {
       const expectedErrorMessage = 'You are not the codebreaker of this game!';
@@ -460,10 +492,14 @@ describe('Mastermind ZkApp Tests', () => {
         secondGuess.map(Field)
       );
 
+      const { proof: validGuessProof } = await GuessProgram.validateGuess(
+        unseparatedGuess
+      );
+
       const makeGuessTx = await Mina.transaction(
         codebreakerKey.toPublicKey(),
         async () => {
-          await zkapp.makeGuess(unseparatedGuess);
+          await zkapp.makeGuess(validGuessProof);
         }
       );
 
@@ -478,27 +514,6 @@ describe('Mastermind ZkApp Tests', () => {
       expect(turnCount).toEqual(4);
     });
 
-    it('should not fetch the latest guess if the offChain state is not settled', async () => {
-      // `roundCount` starts at 0 for the first round
-      const roundCount = UInt8.from(1);
-      const latestGuess = await zkapp.offchainState.fields.roundToGuessMap.get(
-        roundCount
-      );
-
-      expect(latestGuess.isSome.toBoolean()).toBe(false);
-    });
-
-    it('should settle state for the second guess', async () => {
-      await settleTx(zkapp, codemasterKey);
-
-      const roundCount = UInt8.from(1);
-      const latestGuess = await zkapp.offchainState.fields.roundToGuessMap.get(
-        roundCount
-      );
-
-      expect(latestGuess.isSome.toBoolean()).toBe(true);
-    });
-
     it('should reject the codebraker from calling this method out of sequence', async () => {
       const expectedErrorMessage =
         'Please wait for the codemaster to give you a clue!';
@@ -510,18 +525,19 @@ describe('Mastermind ZkApp Tests', () => {
     async function makeGuess(guess: number[]) {
       const unseparatedGuess = compressCombinationDigits(guess.map(Field));
 
+      const { proof: validGuessProof } = await GuessProgram.validateGuess(
+        unseparatedGuess
+      );
+
       const makeGuessTx = await Mina.transaction(
         codebreakerKey.toPublicKey(),
         async () => {
-          await zkapp.makeGuess(unseparatedGuess);
+          await zkapp.makeGuess(validGuessProof);
         }
       );
 
       await makeGuessTx.prove();
       await makeGuessTx.sign([codebreakerKey]).send();
-
-      // Send another tx to settle guess storage
-      await settleTx(zkapp, codebreakerKey);
     }
 
     async function giveClue(expectedClue: number[]) {
@@ -530,29 +546,25 @@ describe('Mastermind ZkApp Tests', () => {
         solution.map(Field)
       );
 
+      const latestGuess = zkapp.unseparatedGuess.get();
+      const { proof: validClueProof } = await ClueProgram.getClueFromGuess(
+        latestGuess,
+        unseparatedSolution,
+        codemasterSalt
+      );
+
       const giveClueTx = await Mina.transaction(
         codemasterKey.toPublicKey(),
         async () => {
-          await zkapp.giveClue(unseparatedSolution, codemasterSalt);
+          await zkapp.giveClue(validClueProof);
         }
       );
 
       await giveClueTx.prove();
       await giveClueTx.sign([codemasterKey]).send();
 
-      // Send another tx to settle clue storage
-      await settleTx(zkapp, codemasterKey);
-
-      const roundCount = zkapp.turnCount.get().sub(3).div(2);
-      const latestGuess = await zkapp.offchainState.fields.roundToGuessMap.get(
-        roundCount
-      );
-
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const serializedClue =
-        await zkapp.offchainState.fields.guessToClueMap.get(latestGuess.value);
-      const clue = deserializeClue(serializedClue.value);
-
+      const serializedClue = zkapp.serializedClue.get();
+      const clue = deserializeClue(serializedClue);
       expect(clue).toEqual(expectedClue.map(Field));
     }
 
@@ -612,6 +624,12 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     codemasterSalt: Field;
 
   beforeAll(async () => {
+    await SolutionProgram.compile();
+    await GuessProgram.compile();
+    await ClueProgram.compile();
+
+    await MastermindZkApp.compile();
+
     // Set up the Mina local blockchain
     const Local = await Mina.LocalBlockchain({ proofsEnabled });
     Mina.setActiveInstance(Local);
@@ -627,58 +645,49 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
 
     // Generate random field as salt for the codemaster
     codemasterSalt = Field.random();
-
-    zkapp.offchainState.setContractInstance(zkapp);
-
-    await offchainState.compile();
-    await MastermindZkApp.compile();
   });
 
   async function makeGuess(guess: number[]) {
     const unseparatedGuess = compressCombinationDigits(guess.map(Field));
 
+    const { proof: validGuessProof } = await GuessProgram.validateGuess(
+      unseparatedGuess
+    );
+
     const makeGuessTx = await Mina.transaction(
       codebreakerKey.toPublicKey(),
       async () => {
-        await zkapp.makeGuess(unseparatedGuess);
+        await zkapp.makeGuess(validGuessProof);
       }
     );
 
     await makeGuessTx.prove();
     await makeGuessTx.sign([codebreakerKey]).send();
-
-    // Send another tx to settle guess storage
-    await settleTx(zkapp, codebreakerKey);
   }
 
   async function giveClue(expectedClue: number[]) {
     const solution = [7, 1, 6, 3];
     const unseparatedSolution = compressCombinationDigits(solution.map(Field));
 
+    const latestGuess = zkapp.unseparatedGuess.get();
+    const { proof: validClueProof } = await ClueProgram.getClueFromGuess(
+      latestGuess,
+      unseparatedSolution,
+      codemasterSalt
+    );
+
     const giveClueTx = await Mina.transaction(
       codemasterKey.toPublicKey(),
       async () => {
-        await zkapp.giveClue(unseparatedSolution, codemasterSalt);
+        await zkapp.giveClue(validClueProof);
       }
     );
 
     await giveClueTx.prove();
     await giveClueTx.sign([codemasterKey]).send();
 
-    // Send another tx to settle clue storage
-    await settleTx(zkapp, codemasterKey);
-
-    const roundCount = UInt8.from(0);
-    const latestGuess = await zkapp.offchainState.fields.roundToGuessMap.get(
-      roundCount
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const serializedClue = await zkapp.offchainState.fields.guessToClueMap.get(
-      latestGuess.value
-    );
-
-    const clue = deserializeClue(serializedClue.value);
+    const serializedClue = zkapp.serializedClue.get();
+    const clue = deserializeClue(serializedClue);
     expect(clue).toEqual(expectedClue.map(Field));
   }
 
@@ -698,10 +707,15 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
       secretCombination.map(Field)
     );
 
+    const { proof: validSecretProof } = await SolutionProgram.validateSecret(
+      compactSecretCombination,
+      codemasterSalt
+    );
+
     const createGameTx = await Mina.transaction(
       codemasterKey.toPublicKey(),
       async () => {
-        await zkapp.createGame(compactSecretCombination, codemasterSalt);
+        await zkapp.createGame(validSecretProof);
       }
     );
 
@@ -716,8 +730,8 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
   it('should give clue and report that the secret is solved', async () => {
     await giveClue([2, 2, 2, 2]);
 
-    const isSolved = zkapp.turnCount.get().toNumber();
-    expect(isSolved).toEqual(255);
+    const isSolved = zkapp.isSolved.get();
+    expect(isSolved.toBoolean()).toEqual(true);
   });
 
   it('should reject next guess: secret is already solved', async () => {
