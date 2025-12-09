@@ -15,11 +15,7 @@
 
 import { MastermindZkApp } from './Mastermind';
 import { Field, Mina, PrivateKey, PublicKey, AccountUpdate, UInt8 } from 'o1js';
-import {
-  deserializeClue,
-  compressCombinationDigits,
-  deserializeClueHistory,
-} from './utils';
+import { deserializeClue, compressCombinationDigits } from './utils';
 
 let proofsEnabled = false;
 
@@ -31,7 +27,7 @@ async function localDeploy(
   const deployerAccount = deployerKey.toPublicKey();
   const tx = await Mina.transaction(deployerAccount, async () => {
     AccountUpdate.fundNewAccount(deployerAccount);
-    zkapp.deploy();
+    await zkapp.deploy();
   });
 
   await tx.prove();
@@ -123,11 +119,11 @@ describe('Mastermind ZkApp Tests', () => {
       await expect(giveClueTx()).rejects.toThrowError(expectedErrorMessage);
     });
 
-    it('should reject calling `initGame` when maxAttempts exceeds 15', async () => {
+    it('should reject calling `initGame` when maxAttempts exceeds 13', async () => {
       const initTx = async () => await initializeGame(zkapp, codemasterKey, 20);
 
       const expectedErrorMessage =
-        'The maximum number of attempts allowed is 15!';
+        'The maximum number of attempts allowed is 13!';
       await expect(initTx()).rejects.toThrowError(expectedErrorMessage);
     });
 
@@ -157,11 +153,13 @@ describe('Mastermind ZkApp Tests', () => {
       const solutionHash = zkapp.solutionHash.get();
       expect(solutionHash).toEqual(Field(0));
 
-      const unseparatedGuess = zkapp.packedGuessHistory.get();
-      expect(unseparatedGuess).toEqual(Field(0));
+      const unseparatedGuess = zkapp.guessHistory.get();
+      expect(unseparatedGuess).toEqual(
+        Array.from({ length: 13 }).fill(Field(0))
+      );
 
-      const serializedClue = zkapp.packedClueHistory.get();
-      expect(serializedClue).toEqual(Field(0));
+      const serializedClue = zkapp.clueHistory.get();
+      expect(serializedClue).toEqual(Array.from({ length: 13 }).fill(Field(0)));
 
       // Initialized manually
       const rounds = zkapp.maxAttempts.get();
@@ -373,8 +371,7 @@ describe('Mastermind ZkApp Tests', () => {
 
         // Test that the on-chain states are updated: serializedClue, isSolved, and turnCount
         const latestClueIndex = zkapp.turnCount.get().sub(3).div(2).toNumber();
-        const serializedClueHistory = zkapp.packedClueHistory.get();
-        const clueHistory = deserializeClueHistory(serializedClueHistory);
+        const clueHistory = zkapp.clueHistory.get();
         const serializedClue = clueHistory[latestClueIndex];
         const clue = deserializeClue(serializedClue);
 
@@ -485,8 +482,7 @@ describe('Mastermind ZkApp Tests', () => {
         await giveClueTx.sign([codemasterKey]).send();
 
         const latestClueIndex = zkapp.turnCount.get().sub(3).div(2).toNumber();
-        const serializedClueHistory = zkapp.packedClueHistory.get();
-        const clueHistory = deserializeClueHistory(serializedClueHistory);
+        const clueHistory = zkapp.clueHistory.get();
         const serializedClue = clueHistory[latestClueIndex];
         const clue = deserializeClue(serializedClue);
 
@@ -598,8 +594,7 @@ describe('Deploy new Game and  block the game upon solving the secret combinatio
     await giveClueTx.sign([codemasterKey]).send();
 
     const latestClueIndex = zkapp.turnCount.get().sub(3).div(2).toNumber();
-    const serializedClueHistory = zkapp.packedClueHistory.get();
-    const clueHistory = deserializeClueHistory(serializedClueHistory);
+    const clueHistory = zkapp.clueHistory.get();
     const latestClueSerialized = clueHistory[latestClueIndex];
     const clue = deserializeClue(latestClueSerialized);
 
