@@ -1,19 +1,15 @@
-import { Field, Bool, Provable } from 'o1js';
+import { Bool, Field, Provable } from 'o1js';
 
 export {
-  separateCombinationDigits,
-  compressCombinationDigits,
-  validateCombination,
-  serializeClue,
-  deserializeClue,
-  serializeClueHistory,
-  deserializeClueHistory,
-  getClueFromGuess,
   checkIfSolved,
-  serializeCombinationHistory,
-  deserializeCombinationHistory,
+  compressCombinationDigits,
+  deserializeClue,
+  getClueFromGuess,
   getElementAtIndex,
+  separateCombinationDigits,
+  serializeClue,
   updateElementAtIndex,
+  validateCombination,
 };
 
 /**
@@ -128,27 +124,6 @@ function deserializeClue(serializedClue: Field): Field[] {
 }
 
 /**
- * Serializes an array of clues into a single `Field` by converting each clue into an 8-bit representation.
- *
- * @param clues - An array of `Field` elements representing the clues.
- * @returns - A serialized `Field` containing the bitwise representation of the clue history.
- */
-function serializeClueHistory(clues: Field[]): Field {
-  return serialize(clues, 8);
-}
-
-/**
- * Deserializes a `Field` back into an array of clues, where each clue is 8 bits long.
- *
- * @param serializedClueHistory - A `Field` containing the serialized clue history.
- * @returns - The deserialized array of `Field` elements representing the clues.
- */
-function deserializeClueHistory(serializedClueHistory: Field): Field[] {
-  // 120 bits total, each clue is 8 bits
-  return deserialize(serializedClueHistory, 120, 8);
-}
-
-/**
  * Compares the guess with the solution and returns a clue indicating hits and blows.
  * A "hit" is when a guess digit matches a solution digit in both value and position.
  * A "blow" is when a guess digit matches a solution digit in value but not position.
@@ -190,29 +165,6 @@ function checkIfSolved(clue: Field[]) {
   }
 
   return isSolved;
-}
-
-/**
- * Serializes an array of combinations into a single `Field` by converting each combination into 14 bits.
- *
- * @param combinations - The array of `Field` elements representing combinations.
- * @returns - The serialized `Field` containing the combination history.
- */
-function serializeCombinationHistory(combinations: Field[]): Field {
-  return serialize(combinations, 14);
-}
-
-/**
- * Deserializes a `Field` back into an array of combinations, where each combination is 14 bits long.
- *
- * @param serializedCombinationHistory - A `Field` containing the serialized combination history.
- * @returns - The deserialized array of `Field` elements representing the combinations.
- */
-function deserializeCombinationHistory(
-  serializedCombinationHistory: Field
-): Field[] {
-  // 210 bits total, each combination is 14 bits
-  return deserialize(serializedCombinationHistory, 210, 14);
 }
 
 /**
@@ -277,44 +229,4 @@ function updateElementAtIndex(
   }
 
   return updatedFieldArray;
-}
-
-/**
- * Serializes an array of `Field` elements by converting each element into its bit representation
- * and flattening the resulting bit arrays into a single `Field`.
- *
- * @param fields - The array of `Field` elements to serialize.
- * @param range - The number of bits for each `Field` element.
- * @returns - A single `Field` containing the serialized bit representation of the array.
- */
-function serialize(fields: Field[], range: number): Field {
-  const bits = fields.map((c) => c.toBits(range));
-  return Field.fromBits(bits.flat());
-}
-
-/**
- * Deserializes a `Field` into an array of `Field` elements by splitting its bit representation
- * into chunks and converting them back into `Field` elements.
- *
- * @param serializedField - The serialized `Field` to deserialize.
- * @param size - The total number of bits in the serialized `Field`.
- * @param chunkSize - The bit size of each individual element in the array.
- * @returns - An array of deserialized `Field` elements.
- */
-function deserialize(
-  serializedField: Field,
-  size: number,
-  chunkSize: number
-): Field[] {
-  const packedBits = serializedField.toBits(size);
-  const unpackedBits: Bool[][] = [];
-
-  // Slice the bit representation into smaller arrays of length `chunkSize`
-  for (let i = 0; i < packedBits.length; i += chunkSize) {
-    const chunk = packedBits.slice(i, i + chunkSize);
-    unpackedBits.push(chunk);
-  }
-
-  const unpacked = unpackedBits.map((bits) => Field.fromBits(bits));
-  return unpacked;
 }
