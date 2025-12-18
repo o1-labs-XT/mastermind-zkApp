@@ -1,4 +1,4 @@
-# Mina zkApp: Mina Mastermind Level 2
+# Mina zkApp: Mina Mastermind Level 2 - Pre-Mesa Example
 
 ![alt text](./images/mastermind-board.png)
 
@@ -6,6 +6,8 @@
 
 ## Mastermind Game Documentation
 
+- [How to Use the Pre-Mesa o1js Package](#how-to-use-the-pre-mesa-o1js-package)
+- [How to deploy and interact with Mesa Testnet](#how-to-deploy-and-interaction-with-mesa-testnet)
 - [Understanding the Mastermind Game](#understanding-the-mastermind-game)
 
   - [Overview](#overview)
@@ -22,25 +24,56 @@
     - [isSolved](#issolved)
     - [codemasterId & codebreakerId](#codemasterid--codebreakerid)
     - [solutionHash](#solutionhash)
-    - [packedGuessHistory](#packedguesshistory)
-    - [packedClueHistory](#packedcluehistory)
+    - [guessHistory](#guesshistory)
+    - [clueHistory](#cluehistory)
   - [Mastermind Methods](#mastermind-methods)
     - [initGame](#initgame)
     - [createGame](#creategame)
     - [makeGuess](#makeguess)
     - [giveClue](#giveclue)
 
-- [Techniques](#techniques)
-  - [Packing Small Fields](#packing-small-fields)
-  - [Field Array Operations](#field-array-operations)
-    - [Dynamic Indexing](#dynamic-indexing)
-    - [Dynamic Updating](#dynamic-updating)
-    - [Technical Considerations](#technical-considerations)
+- [Packing Small Fields](#packing-small-fields)
+- [Field Array Operations](#field-array-operations)
+  - [Dynamic Indexing](#dynamic-indexing)
+  - [Dynamic Updating](#dynamic-updating)
+  - [Technical Considerations](#technical-considerations)
 - [How to Build & Test](#how-to-build--test)
   - [How to build](#how-to-build)
   - [How to run tests](#how-to-run-tests)
   - [How to run coverage](#how-to-run-coverage)
 - [License](#license)
+
+# How to Use the Pre-Mesa o1js Package
+
+To use the pre-Mesa `o1js` package, simply override the `o1js` peer dependency by installing it from `npm i https://pkg.pr.new/o1-labs/o1js@e5011ff` as seen in the project's [`package.json`](./package.json).
+
+# How to Deploy and Interact with the Mesa Testnet
+
+- To deploy on the Mesa Testnet, first create a new `.env` file and add two private keys. See [./.env.example](./.env.example) for a reference.
+
+- The two keys defined there must be funded. You can generate fresh keys and request test funds from the
+  [Mina faucet](https://faucet.minaprotocol.com/).
+
+  ```ts
+  import { PrivateKey } from 'o1js';
+
+  let codeBreakerPrivKey = PrivateKey.random();
+  console.log(
+    'codebreaker private key base58: ',
+    codeBreakerPrivKey.toBase58()
+  );
+  let codeBreakerPubKey = codeBreakerPrivKey.toPublicKey();
+  console.log('codebreaker public key base58: ', codeBreakerPubKey.toBase58());
+  ```
+
+- Once the keys are set, build the project and deploy the zkApp while simulating a game on the Mesa Testnet by running:
+
+  ```sh
+  npm run build
+  node build/src/run.js
+  ```
+
+- **Note:** For additional context and background, see the [Mesa pre-release blog post](https://www.o1labs.org/blog/o1js-mesa-prerelease).
 
 # Understanding the Mastermind Game
 
@@ -80,7 +113,7 @@
 
 # Introduction
 
-This implementation is part of a multi-level series of the Mastermind zkApp game. It represents Level 2, which introduces packing techniques to efficiently store the history of actions for both the Code Master and the Code Breaker. Additionally, it incorporates dynamic array indexing and updates to retrieve and modify elements (fields) within lists, specifically in the context of zero-knowledge proof (ZKP) circuits.
+This implementation is part of a multi-level series of the Mastermind zkApp game. It represents a different Level 2 leveraging the increased account states introduced by the Mesa Hardfork. Additionally, it incorporates dynamic array indexing and updates to retrieve and modify elements (fields) within lists, specifically in the context of zero-knowledge proof (ZKP) circuits.
 
 - For a foundational understanding of the game, as well as insights into the enhancements introduced in Level 2, please refer to the [Mastermind Level 1](https://github.com/o1-labs-XT/mastermind-zkApp/tree/level1?tab=readme-ov-file) code and documentation.
 
@@ -98,11 +131,7 @@ This implementation is part of a multi-level series of the Mastermind zkApp game
 
   - Although a player may recognize inconsistencies based on their memory of previous moves, relying on trust in frontend code (instead of an on-chain record) undermines the trustless nature of the game.
 
-  - The goal of the Level 2 implementation is to overcome the zkApp’s 8-state storage limit by storing the history of guesses and clues directly on-chain. This eliminates the need for trust in off-chain tracking and reduces the risk of player errors, ensuring a more reliable and trustless gameplay experience.
-
-- Since the size of individual states (guesses and clues) is small, a practical solution is to pack multiple small states into a single storage state. This is feasible, as each storage state in zkApps is 255 bits.
-
-- The [packing techniques](#packing-small-fields) introduced in this implementation can be applied beyond the game, serving as an efficient method to pack any list of small field elements into a single state, optimizing storage or for **encoding purposes**.
+  - The goal of the Level 2 implementation is to store the history of all guesses and clues directly on-chain. This eliminates the need for trust in off-chain tracking and reduces the risk of player errors, ensuring a more reliable and trustless gameplay experience.
 
 - Additionally, following the logic of the [giveClue method](#giveclue), which relies on the most recent guess stored on-chain, this implementation demonstrates [dynamic indexing](#dynamic-indexing) and [updating](#dynamic-updatinga) of field arrays to retrieve the latest guess based on the [turnCount state](#turncount).
 
@@ -138,7 +167,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 ### maxAttempts
 
-- This state is set during game initialization and and ensures the number of attempts is limited between 5 and 15.
+- This state is set during game initialization and and ensures the number of attempts is limited between 5 and 13.
 
 - Without this state, the game would be biased in favor of the Code Breaker, allowing the game to continue indefinitely until the secret combination is solved.
 
@@ -166,24 +195,20 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 - **Note:** Unlike player IDs, where hashing is used for data compression, here it is used to preserve the privacy of the on-chain state and to ensure the integrity of the values entered privately with each method call.
 
-### packedGuessHistory
+### guessHistory
 
-- This state represents the history of guesses made by the Code Breaker, [serialized and packed](#packedguesshistory) into a single `Field` element.
-
+- This state represents the history of guesses made by the Code Breaker stored in an array of `13` field elements.
 - It not only plays a role in storing the history of the game but also serves as a means for the Code Master to provide clues based on the latest guess.
 
-- The latest guess is retrieved within the zkApp's [giveClue method](#giveclue) by unpacking the guesses and [indexing](#dynamic-indexing) the most recent one based on the [turnCount ](#turncount) state.
+- The latest guess is retrieved within the zkApp's [giveClue method](#giveclue) by [indexing](#dynamic-indexing) the most recent one based on the [turnCount ](#turncount) state.
 
 - After deserializing and fetching the correct guess, the guess represents the Code Breaker's move as a single `Field` encoded in decimal.
   - For example, if the guess is `4 5 2 3`, it would be used as a `Field` value of `4523`.
 - The Code Master will later split it into its individual digits to compare against the solution.
 
-- For more details on the packing/unpacking architecture used for operations on `packedGuessHistory`, refer to the [makeGuess method](#makeguess) documentation.
+### clueHistory
 
-### packedClueHistory
-
-- This state represents the history of clues provided by the Code Master.
-- Unlike [packedGuessHistory](#packedguesshistory), this state is not directly used within the zkApp but serves as an untampered record of clues, showing the results of all the Code Breaker's guesses.
+- This state represents the history of clues provided by the Code Master stored in an array of `13` field elements.
 
 - **Note**: The Code Breaker is expected to fetch this state off-chain, unpack the clues, retrieve and deserialize the latest clue, and interpret the result to accurately understand the outcome of their previous guess and adjust their strategy accordingly.
 
@@ -195,8 +220,6 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
   - For example, if the clue is `1 1 1 1`, it would be stored as a field of value `15`.
 
-- The `packedClueHistory` state demonstrates an efficient [packing technique](#packedcluehistory) that stores multiple small `Field` elements (binary-encoded) into a single compact value.
-
 ### isSolved
 
 - This state is a `Bool` that indicates whether the Code Breaker has successfully uncovered the solution.
@@ -207,7 +230,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 ### initGame
 
-- Upon deployment, the Mastermind zkApp flexibly uses the `maxAttempts` argument to set the number of rounds between `5` and `15`, instead of relying on a hardcoded value.
+- Upon deployment, the Mastermind zkApp flexibly uses the `maxAttempts` argument to set the number of rounds between `5` and `13`, instead of relying on a hardcoded value.
 
 - The steps to initialize a zkApp with arguments are as follows:
 
@@ -283,10 +306,9 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 - After all the preceding checks pass, the code breaker's guess combination is validated, stored on-chain, and the `turnCount` is incremented. This then awaits the code master to read the guess and provide a clue.
 
-- **Note:** The on-chain storage at this level differs because the state for guesses represents the entire history, making it essential to handle packing and unpacking at the correct indexed position.
-  - First, the state is fetched and unpacked by serializing the stored value into bits to retrieve all the guesses.
-  - At this stage, an array of fields(guesses) is obtained and [dynamically updated](#dynamic-updating) based on the current [turn count](#turncount).
-  - The updated array is then [repacked](#packedguesshistory) and stored back on-chain.
+- **Note:** The on-chain storage at this level differs because the state for guesses represents the entire history, making it essential to handle the correct indexed position.
+  - First, the state is fetched and [dynamically updated](#dynamic-updating) based on the current [turn count](#turncount).
+  - The updated array is then stored back on-chain.
 
 ### giveClue
 
@@ -300,19 +322,17 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 - After the preceding checks pass, the plain `unseparatedSecretCombination` input is separated into 4 digits, hashed along with the salt, and asserted against the `solutionHash` state to ensure the integrity of the secret.
 
 - Next, the guess from the previous turn is fetched, separated, and compared against the secret combination digits to provide a clue.
-- The guess history is fetched, unpacked, and [dynamically](#dynamic-indexing) retrieves the latest guess based on the current [turn count](#turncount).
+- The guess history is fetched and [dynamically](#dynamic-indexing) retrieves the latest guess based on the current [turn count](#turncount).
 - If the clue results in 4 hits (e.g., `2 2 2 2`), the game is marked as solved, and the `isSolved` state is updated to `Bool(true)`.
 - The clue is then serialized into four 2-bit fields, packed into an 8-bit value, and stored on-chain.
-- On-chain storage at this level involves fetching the [packedClueHistory](#packedcluehistory), unpacking it, updating the history, repacking the clue history, and storing it back on-chain.
+- On-chain storage at this level involves fetching the [clueHistory](#cluehistory), dynamically updating the history, and storing it back on-chain.
 - It’s important to **note** that this method requires the adversary to deserialize and correctly interpret the digits before making the next guess.
 
 - Finally, the `turnCount` is incremented, making it odd and awaiting the code breaker to deserialize and read the clue before making a meaningful guess—assuming the game is not already solved or has not reached the maximum number of attempts.
 
 ---
 
-# Techniques
-
-## Packing Small Fields
+# Packing Small Fields
 
 - This technique optimizes storage by packing multiple small fields into a single 255-bit field, ensuring their combined sizes stay within the storage limit.
 
@@ -324,59 +344,9 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
 
 - Unpacking the small fields is simply the reverse process of packing. The packed state is fetched, serialized into bits, and each small field is extracted based on its size and block index within the 255-bit state. The same approach applies if the small field is encoded in binary after this operation.
 
-### Packing Guess History
+# Field Array Operations
 
-- In this example, a guess is represented as a `4-digit` number ranging from `1000` to `9999`. To pack the guess efficiently, we need to determine whether it's better to treat the guess as a single value or break it into individual digits.
-
-- After evaluation, we choose to pack the guess as a single `4-digit` field for optimal size:
-
-  - The maximum value of a guess is `9999`, which requires `14` bits to represent in binary.
-  - Each decimal digit (0-9) needs `4` bits in binary, so packing four separate digits would consume `16` bits.
-  - Since `14` bits are more compact than `16` bits, we serialize the entire guess as a single 4-digit value.
-  - Another reason for this approach is that the decimal combination is directly used in our Mastermind game. In contrast, packing separate digits in binary would require decoding, which could introduce additional complexity. However, in the case of guesses, serializing the decimal combination is both practical and efficient.
-
-- Given that the number of guesses is constrained by the [maxAttempts](#maxattempts) state, with a maximum value of `15`, we can calculate the total size of the packed state, [packedGuessHistory](#packedguesshistory), as follows:
-
-  - `14 bits per guess * 15 guesses = 210 bits`
-
-    ![Packed Guess History](./images/guessHistory-mastermind.png)
-
-- To compress the serialized `210` bits back into a single field, we use the `fromBits()` API:
-
-  ```ts
-  Field.fromBits(210);
-  ```
-
-- **Note:** Since the state field is initialized to `0`, the serialized field bits will also be all zero. Consequently, each `14-bit block` for the guess combinations will initially contain only zeros. As guesses are updated, only the corresponding 14-bit block at each index will reflect the stored guess.
-
-### Packing Clue History
-
-- The clue provided by the Code Master consists of four digits, with each digit representing either `0`, `1`, or `2`, corresponding to a miss, blow, and hit, respectively. Since these values can be represented using `2 bits`, we need to evaluate the most efficient way to pack the entire clue.
-
-  - Each clue consists of 4 digits, and each digit requires `2 bits` for representation:
-
-    - `2 bits per digit * 4 digits = 8 bits per clue`.
-
-  - As mentioned in the guess history, a 4-digit guess is estimated to require `14 bits`. However, it's more efficient in this case to store each clue digit separately in binary, representing the entire clue in an `8-bit` field.
-    - The `14-bit` estimate isn’t entirely accurate here, as the maximum value could be set to `2222`, which only requires `12` bits. Nonetheless, packing the digits separately remains a more efficient solution.
-
-- Since the game allows for a maximum of `15 guesses`, we can calculate the total size of the packed clue history state [packedClueHistory](#packedcluehistory):
-
-  - `8 bits per clue * 15 clues = 120 bits`.
-
-  ![Packed Clue History](./images/clueHistory-mastermind.png)
-
-- To compress the serialized 120 bits back into a single field, we again use the `fromBits()` API:
-  ```ts
-  Field.fromBits(120);
-  ```
-- Similar to [packedGuessHistory](#packedguesshistory), the [packedClueHistory](#packedcluehistory) is initialized to zero. As clues are provided, they replace the 0 bits at the appropriate position based on the current turn count. This ensures that the entire history of clues is accurately recorded.
-
-- **Note:** Unlike guesses, an all-zero clue indicates that the Code Breaker's guess is completely wrong. Therefore, a clue is only relevant at the given index, and the security of this interpretation is ensured by asserting that the `8-bit block clue` is in sync with the [turn count](#turncount), reflecting game progress. In such cases, it's important to consider the potential pitfalls if the initial encoding can be manipulated.
-
-## Field Array Operations
-
-### Dynamic Indexing
+## Dynamic Indexing
 
 - There's no difference when accessing an array of `Field` or its derived types using standard numeric indexing. However, when the index itself is of a **provable type**, such as a `Field`, traditional indexing is no longer possible.
 
@@ -404,7 +374,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
   }
   ```
 
-### Dynamic Updating
+## Dynamic Updating
 
 - Dynamic updating of a `Field` array in ZKP circuits follows a similar approach to dynamic indexing. Instead of modifying an array at a given index directly, the circuit iterates over the array and conditionally updates the value at the specified index while leaving all other elements unchanged.
 
@@ -432,7 +402,7 @@ Let’s examine each state’s purpose and the smart workarounds used to optimiz
   }
   ```
 
-### Technical Considerations
+## Technical Considerations
 
 In both dynamic indexing and updating, it is critical to ensure that the index is within bounds. An out-of-bounds index can lead to unintended behavior or errors during proof generation. Therefore, it's important to enforce proper constraint checks to validate the index before performing these operations.
 

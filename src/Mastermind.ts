@@ -1,27 +1,23 @@
 import {
-  Field,
-  SmartContract,
-  state,
-  State,
-  method,
-  UInt8,
-  Provable,
-  Poseidon,
   Bool,
+  Field,
+  Poseidon,
+  Provable,
+  SmartContract,
+  State,
+  UInt8,
+  method,
+  state,
 } from 'o1js';
 
 import {
-  separateCombinationDigits,
-  validateCombination,
-  serializeClue,
-  serializeClueHistory,
-  deserializeClueHistory,
-  getClueFromGuess,
   checkIfSolved,
-  serializeCombinationHistory,
-  deserializeCombinationHistory,
+  getClueFromGuess,
   getElementAtIndex,
+  separateCombinationDigits,
+  serializeClue,
   updateElementAtIndex,
+  validateCombination,
 } from './utils.js';
 
 export class MastermindZkApp extends SmartContract {
@@ -33,8 +29,8 @@ export class MastermindZkApp extends SmartContract {
   @state(Field) codebreakerId = State<Field>();
 
   @state(Field) solutionHash = State<Field>();
-  @state(Field) packedGuessHistory = State<Field>();
-  @state(Field) packedClueHistory = State<Field>();
+  @state(Provable.Array(Field, 13)) guessHistory = State<Field[]>();
+  @state(Provable.Array(Field, 13)) clueHistory = State<Field[]>();
 
   @method async initGame(maxAttempts: UInt8) {
     const isInitialized = this.account.provedState.getAndRequireEquals();
@@ -49,8 +45,8 @@ export class MastermindZkApp extends SmartContract {
     );
 
     maxAttempts.assertLessThanOrEqual(
-      UInt8.from(15),
-      'The maximum number of attempts allowed is 15!'
+      UInt8.from(13),
+      'The maximum number of attempts allowed is 13!'
     );
 
     this.maxAttempts.set(maxAttempts);
@@ -143,12 +139,7 @@ export class MastermindZkApp extends SmartContract {
     const guessDigits = separateCombinationDigits(guess);
     validateCombination(guessDigits);
 
-    // Fetch the serialized guess history
-    const serializedGuessHistory =
-      this.packedGuessHistory.getAndRequireEquals();
-
-    // Deserialize the guess history into an array of combinations
-    const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
+    const guessHistory = this.guessHistory.getAndRequireEquals();
 
     // Update the guess history with the new guess at the calculated index (based on turn count)
     const updatedGuessHistory = updateElementAtIndex(
@@ -157,12 +148,8 @@ export class MastermindZkApp extends SmartContract {
       turnCount.sub(1).div(2).value // Adjust index for alternating turns
     );
 
-    // Serialize the updated guess history
-    const serializedUpdatedGuessHistory =
-      serializeCombinationHistory(updatedGuessHistory);
-
-    // Store the updated serialized guess history
-    this.packedGuessHistory.set(serializedUpdatedGuessHistory);
+    // Store the updated guess history
+    this.guessHistory.set(updatedGuessHistory);
 
     // Increment turnCount and wait for the codemaster to give a clue
     this.turnCount.set(turnCount.add(1));
@@ -220,10 +207,8 @@ export class MastermindZkApp extends SmartContract {
         'The secret combination is not compliant with the stored hash on-chain!'
       );
 
-    // Fetch and deserialize the on-chain guess history
-    const serializedGuessHistory =
-      this.packedGuessHistory.getAndRequireEquals();
-    const guessHistory = deserializeCombinationHistory(serializedGuessHistory);
+    // Fetch the on-chain guess history
+    const guessHistory = this.guessHistory.getAndRequireEquals();
 
     // Get the latest guess based on the latest guess index
     const guessIndex = turnCount.div(2).sub(1).value;
@@ -237,20 +222,17 @@ export class MastermindZkApp extends SmartContract {
     let isSolved = checkIfSolved(clue);
     this.isSolved.set(isSolved);
 
-    // Serialize and update the on-chain clue history
+    // Update the on-chain clue history
     const serializedClue = serializeClue(clue);
-    const serializedClueHistory = this.packedClueHistory.getAndRequireEquals();
-    const clueHistory = deserializeClueHistory(serializedClueHistory);
+    const clueHistory = this.clueHistory.getAndRequireEquals();
     const updatedClueHistory = updateElementAtIndex(
       serializedClue,
       clueHistory,
       guessIndex
     );
 
-    // Serialize and store the updated clue history on-chain
-    const serializedUpdatedClueHistory =
-      serializeClueHistory(updatedClueHistory);
-    this.packedClueHistory.set(serializedUpdatedClueHistory);
+    // Store the updated clue history on-chain
+    this.clueHistory.set(updatedClueHistory);
 
     // Increment the on-chain turnCount
     this.turnCount.set(turnCount.add(1));
