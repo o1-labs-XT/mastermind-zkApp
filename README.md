@@ -7,6 +7,7 @@
 ## Mastermind Game Documentation
 
 - [How to Use the Pre-Mesa o1js Package](#how-to-use-the-pre-mesa-o1js-package)
+- [How to deploy and interact with Mesa Testnet](#how-to-deploy-and-interaction-with-mesa-testnet)
 - [Understanding the Mastermind Game](#understanding-the-mastermind-game)
 
   - [Overview](#overview)
@@ -45,6 +46,34 @@
 # How to Use the Pre-Mesa o1js Package
 
 To use the pre-Mesa `o1js` package, simply override the `o1js` peer dependency by installing it from `npm i https://pkg.pr.new/o1-labs/o1js@e5011ff` as seen in the project's [`package.json`](./package.json).
+
+# How to Deploy and Interact with the Mesa Testnet
+
+- To deploy on the Mesa Testnet, first create a new `.env` file and add two private keys. See [./.env.example](./.env.example) for a reference.
+
+- The two keys defined there must be funded. You can generate fresh keys and request test funds from the
+  [Mina faucet](https://faucet.minaprotocol.com/).
+
+  ```ts
+  import { PrivateKey } from 'o1js';
+
+  let codeBreakerPrivKey = PrivateKey.random();
+  console.log(
+    'codebreaker private key base58: ',
+    codeBreakerPrivKey.toBase58()
+  );
+  let codeBreakerPubKey = codeBreakerPrivKey.toPublicKey();
+  console.log('codebreaker public key base58: ', codeBreakerPubKey.toBase58());
+  ```
+
+- Once the keys are set, build the project and deploy the zkApp while simulating a game on the Mesa Testnet by running:
+
+  ```sh
+  npm run build
+  node build/src/run.js
+  ```
+
+- **Note:** For additional context and background, see the [Mesa pre-release blog post](https://www.o1labs.org/blog/o1js-mesa-prerelease).
 
 # Understanding the Mastermind Game
 
